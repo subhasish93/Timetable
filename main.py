@@ -1,16 +1,18 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from fastapi.middleware.cors import CORSMiddleware
 
-from db import engine, SessionLocal
-from models import Base, Timetable, Section, TimeSlot, SubjectTeacher, Subject, Teacher
-
+from db import SessionLocal, engine
+from models import Base, Section, Course, TimeSlot, SubjectTeacher, Subject, Teacher, Timetable
 from schemas import TimetableCreate
 
-from fastapi.middleware.cors import CORSMiddleware
+# Create tables
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Timetable Management System")
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],
@@ -19,7 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+# DB Dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -27,57 +29,119 @@ def get_db():
     finally:
         db.close()
 
-@app.post("/timetable")
-def create_timetable(data: TimetableCreate, db: Session = Depends(get_db)):
-    timetable = Timetable(**data.dict())
-    try:
-        db.add(timetable)
-        db.commit()
-        return {"message": "Timetable created successfully"}
-    except IntegrityError as e:
-        db.rollback()
-        print("DB ERROR", e.orig)
-        raise HTTPException(
-            status_code=400,
-            detail="Conflict detected (Teacher / Section / Room)"
-        )
 
-@app.get("/timetable")
-def get_timetable(db: Session = Depends(get_db)):
-    return db.query(Timetable).all()
+# ========================= SECTIONS =========================
 
 @app.get("/sections")
 def get_sections(db: Session = Depends(get_db)):
-    return db.query(Section).all()
+    result = db.query(
+        Section.section_id,
+        Section.name,
+        Course.name.label("course"),
+        Section.semester
+    ).join(Course).all()
+
+    return [dict(r._mapping) for r in result]
+
+
+# ========================= TIME SLOTS =========================
 
 @app.get("/time-slots")
 def get_slots(db: Session = Depends(get_db)):
-    return db.query(TimeSlot).all()
+    slots = db.query(TimeSlot).all()
+    return [
+        {
+            "slot_id": s.slot_id,
+            "day": s.day_of_week,
+            "start": str(s.start_time),
+            "end": str(s.end_time),
+        }
+        for s in slots
+    ]
 
-@app.get("/subject-teachers")
-def get_subject_teachers(db: Session = Depends(get_db)):
-    return db.query(SubjectTeacher).all()
+
+# ========================= SUBJECT + TEACHER =========================
 
 @app.get("/subject-teachers-full")
 def get_subject_teachers_full(db: Session = Depends(get_db)):
-    return db.query(
+    result = db.query(
         SubjectTeacher.id.label("subject_teacher_id"),
         Subject.name.label("subject_name"),
         Teacher.name.label("teacher_name")
     ).join(Subject).join(Teacher).all()
 
-@app.get("/timetable/full")
-def get_full_timetable(db: Session = Depends(get_db)):
+    return [dict(r._mapping) for r in result]
+
+
+@app.get("/subject-teachers")
+def get_subject_teachers(db: Session = Depends(get_db)):
     result = db.query(
-        Timetable.timetable_id,
-        Section.name.label("section"),
-        Subject.name.label("subject"),
-        Teacher.name.label("teacher"),
-        TimeSlot.day_of_week,
-        TimeSlot.start_time,
-        TimeSlot.end_time,
-        Timetable.room_no
-    ).join(Section).join(TimeSlot).join(SubjectTeacher).join(Subject).join(Teacher).all()
+        SubjectTeacher.id.label("subject_teacher_id"),
+        Subject.name.label("subject_name"),
+        Teacher.name.label("teacher_name")
+    ).join(Subject).join(Teacher).all()
 
     return [dict(r._mapping) for r in result]
 
+
+# ========================= CREATE TIMETABLE =========================
+
+@app.post("/timetable")
+def create_timetable(data: TimetableCreate, db: Session = Depends(get_db)):
+    timetable = Timetable(**data.dict())
+
+    try:
+        db.add(timetable)
+        db.commit()
+        return {"message": "Timetable created successfully"}
+
+    except IntegrityError as e:
+        db.rollback()
+        msg = str(e.orig)
+
+        if "teacher_slot_unique" in msg:
+            detail = "Teacher already busy at this time"
+        elif "room_slot_unique" in msg:
+            detail = "Room already occupied"
+        elif "section_slot_unique" in msg:
+            detail = "Section already has class at this time"
+        else:
+            detail = "Scheduling conflict detected"
+
+        raise HTTPException(status_code=400, detail=detail)
+
+
+# ========================= GET SECTION TIMETABLE =========================
+
+@app.get("/timetable/section/{section_id}")
+def get_section_timetable(section_id: int, db: Session = Depends(get_db)):
+    result = db.query(
+        Timetable.timetable_id,
+        TimeSlot.day_of_week.label("day"),
+        TimeSlot.start_time,
+        TimeSlot.end_time,
+        Subject.name.label("subject"),
+        Teacher.name.label("teacher"),
+        Timetable.room_no
+    ).join(TimeSlot)\
+     .join(SubjectTeacher)\
+     .join(Subject)\
+     .join(Teacher)\
+     .filter(Timetable.section_id == section_id)\
+     .order_by(TimeSlot.day_of_week, TimeSlot.start_time)\
+     .all()
+
+    return [dict(r._mapping) for r in result]
+
+
+# ========================= DELETE TIMETABLE =========================
+
+@app.delete("/timetable/{timetable_id}")
+def delete_timetable(timetable_id: int, db: Session = Depends(get_db)):
+    entry = db.query(Timetable).filter(Timetable.timetable_id == timetable_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    db.delete(entry)
+    db.commit()
+    return {"message": "Deleted successfully"}
