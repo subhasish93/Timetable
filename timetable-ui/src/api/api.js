@@ -37,5 +37,6 @@ export const createTimetable = (data) => api.post('/timetable', data);
 
 // Delete timetable entry
 export const deleteTimetable = (id) => api.delete(`/timetable/${id}`);
+export const updateTimetable = (id, data) => api.put(`/timetable/${id}`, data);
 
 export default api;

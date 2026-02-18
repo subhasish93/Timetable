@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import {
-  Calendar, BookOpen, Trash2,
+  Calendar, BookOpen, Trash2, Pencil,  // ← add Pencil icon
 } from 'lucide-react';
 import {
   getSections, getTimeSlots, getSubjectTeachers,
   getSectionTimetable, createTimetable, deleteTimetable,
+  updateTimetable,   // ← import the new function
 } from './api/api';
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -17,6 +18,10 @@ function App() {
 
   const [selectedSection, setSelectedSection] = useState(null);
   const [timetable, setTimetable] = useState([]);
+
+  // ── Edit mode state ───────────────────────────────────────
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
   const [form, setForm] = useState({
     section_id: 0,
@@ -42,31 +47,62 @@ function App() {
     }
   }, [selectedSection]);
 
-  const handleCreate = async () => {
+  // Reset form to "create" mode
+  const resetForm = () => {
+    setForm({
+      section_id: selectedSection || 0,
+      subject_teacher_id: 0,
+      slot_id: 0,
+      room_no: '',
+    });
+    setIsEditing(false);
+    setEditingId(null);
+  };
+
+  const handleSubmit = async () => {
     if (!form.section_id || !form.subject_teacher_id || !form.slot_id || !form.room_no.trim()) {
       toast.error('Please fill all fields');
       return;
     }
 
     try {
-      await createTimetable(form);
-      toast.success('Entry added!');
+      if (isEditing) {
+        // ── UPDATE ───────────────────────────────────────
+        await updateTimetable(editingId, form);
+        toast.success('Entry updated!');
+      } else {
+        // ── CREATE ───────────────────────────────────────
+        await createTimetable(form);
+        toast.success('Entry added!');
+      }
 
-      // refresh timetable
+      // Refresh timetable
       if (selectedSection) {
         const res = await getSectionTimetable(selectedSection);
         setTimetable(res.data);
       }
 
-      setForm(prev => ({
-        ...prev,
-        subject_teacher_id: 0,
-        slot_id: 0,
-        room_no: '',
-      }));
+      resetForm();
     } catch (err) {
-      // error already handled by axios interceptor
+      // error handled by interceptor / axios
     }
+  };
+
+  const handleEdit = (entry) => {
+    setIsEditing(true);
+    setEditingId(entry.timetable_id);
+
+    // Pre-fill form (you may need to match IDs correctly)
+    // Assuming your timetable response includes subject_teacher_id & slot_id
+    setForm({
+      section_id: selectedSection,
+      subject_teacher_id: entry.subject_teacher_id || 0,   // adjust field name if different
+      slot_id: entry.slot_id || 0,                         // adjust if needed
+      room_no: entry.room_no || '',
+    });
+
+    // Optional: scroll to form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDelete = async (id) => {
@@ -77,26 +113,33 @@ function App() {
       toast.success('Deleted');
       setTimetable(prev => prev.filter(e => e.timetable_id !== id));
     } catch (err) {
-      // error handled in interceptor
+      // handled elsewhere
     }
   };
 
   return (
     <div className="container mx-auto p-4 max-w-7xl">
       <Toaster position="top-right" />
+
       <h1 className="text-3xl font-bold mb-6 text-center flex items-center justify-center gap-3">
         <Calendar className="w-8 h-8 text-blue-600" /> Timetable Management
       </h1>
 
       {/* Form / Controls */}
       <div className="bg-white p-6 rounded-lg shadow mb-8">
+        <h2 className="text-xl font-semibold mb-4">
+          {isEditing ? 'Edit Timetable Entry' : 'Add New Entry'}
+        </h2>
+
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          {/* Section – usually fixed when editing */}
           <div>
             <label className="block text-sm font-medium mb-1">Section</label>
             <select
               className="w-full border rounded px-3 py-2"
               value={selectedSection || ''}
               onChange={e => setSelectedSection(Number(e.target.value) || null)}
+              disabled={isEditing} // optional: prevent changing section while editing
             >
               <option value="">Select section to view</option>
               {sections.map(s => (
@@ -151,12 +194,23 @@ function App() {
           </div>
         </div>
 
-        <button
-          onClick={handleCreate}
-          className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
-        >
-          Add Entry
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={handleSubmit}
+            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
+          >
+            {isEditing ? 'Update Entry' : 'Add Entry'}
+          </button>
+
+          {isEditing && (
+            <button
+              onClick={resetForm}
+              className="bg-gray-500 text-white px-6 py-2 rounded hover:bg-gray-600 transition"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Timetable Display */}
@@ -193,15 +247,23 @@ function App() {
                     <tr key={entry.timetable_id} className="border-t hover:bg-gray-50">
                       <td className="p-3">{entry.day}</td>
                       <td className="p-3">
-                        {entry.start_time.slice(0, 5)} – {entry.end_time.slice(0, 5)}
+                        {entry.start_time?.slice(0, 5)} – {entry.end_time?.slice(0, 5)}
                       </td>
                       <td className="p-3">{entry.subject}</td>
                       <td className="p-3">{entry.teacher}</td>
                       <td className="p-3 font-medium">{entry.room_no}</td>
-                      <td className="p-3 text-center">
+                      <td className="p-3 text-center flex justify-center gap-3">
+                        <button
+                          onClick={() => handleEdit(entry)}
+                          className="text-green-600 hover:text-green-800"
+                          title="Edit"
+                        >
+                          <Pencil size={18} />
+                        </button>
                         <button
                           onClick={() => handleDelete(entry.timetable_id)}
                           className="text-red-600 hover:text-red-800"
+                          title="Delete"
                         >
                           <Trash2 size={18} />
                         </button>

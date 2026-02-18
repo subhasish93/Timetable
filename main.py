@@ -145,3 +145,16 @@ def delete_timetable(timetable_id: int, db: Session = Depends(get_db)):
     db.delete(entry)
     db.commit()
     return {"message": "Deleted successfully"}
+
+@app.put("/timetable/{id}")
+def update_timetable(id: int, data: TimetableCreate, db: Session = Depends(get_db)):
+    entry = db.query(Timetable).filter(Timetable.timetable_id == id).first()
+    if not entry:
+        raise HTTPException(404, "Not found")
+
+    for key, value in data.dict().items():
+        setattr(entry, key, value)
+
+    db.commit()
+    db.refresh(entry)
+    return entry
