@@ -1,6 +1,7 @@
 // src/components/layout/AdminLayout.jsx
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { Calendar, Users, BookOpen, Clock, GraduationCap, Building } from 'lucide-react';
+import Organization from '../../pages/Organization';
 
 const menuItems = [
     { to: "/timetable", label: "Timetable", icon: Calendar },
@@ -8,7 +9,8 @@ const menuItems = [
     { to: "/subjects", label: "Subjects", icon: BookOpen },
     { to: "/assignments", label: "Assignments", icon: GraduationCap },
     { to: "/time-slots", label: "Time Slots", icon: Clock },
-    { to: "/management", label: "Management", icon: Building }, 
+    //{ to: "/management", label: "Management", icon: Building }, 
+    { to: "/organization", label: "Organization", icon: Building },
 ];
 
 export default function AdminLayout() {

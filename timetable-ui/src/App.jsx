@@ -5,7 +5,7 @@ import Teachers from './pages/Teachers';
 import Subjects from './pages/Subjects';           
 import SubjectAssignments from './pages/SubjectAssignments';
 import TimeSlots from './pages/TimeSlots';
-import Management from './pages/Management';
+import Organization from './pages/Organization';
 
 
 function App() {
@@ -20,7 +20,8 @@ function App() {
           <Route path="/subjects" element={<Subjects />} />
           <Route path="/assignments" element={<SubjectAssignments />} />
           <Route path="/time-slots" element={<TimeSlots />} />
-          <Route path="/management" element={<Management />} />
+          <Route path="/organization" element={<Organization />} />
+          
 
 
           {/* later */}
