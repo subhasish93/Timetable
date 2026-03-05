@@ -5,6 +5,8 @@ import Teachers from './pages/Teachers';
 import Subjects from './pages/Subjects';           
 import SubjectAssignments from './pages/SubjectAssignments';
 import TimeSlots from './pages/TimeSlots';
+import Organization from './pages/Organization';
+
 
 function App() {
   return (
@@ -18,6 +20,9 @@ function App() {
           <Route path="/subjects" element={<Subjects />} />
           <Route path="/assignments" element={<SubjectAssignments />} />
           <Route path="/time-slots" element={<TimeSlots />} />
+          <Route path="/organization" element={<Organization />} />
+          
+
 
           {/* later */}
           {/* <Route path="/sections"      element={<Sections />} /> */}

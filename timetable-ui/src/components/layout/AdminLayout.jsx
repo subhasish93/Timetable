@@ -1,6 +1,7 @@
 // src/components/layout/AdminLayout.jsx
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Calendar, Users, BookOpen, Clock, GraduationCap } from 'lucide-react';
+import { Calendar, Users, BookOpen, Clock, GraduationCap, Building } from 'lucide-react';
+import Organization from '../../pages/Organization';
 
 const menuItems = [
     { to: "/timetable", label: "Timetable", icon: Calendar },
@@ -8,7 +9,8 @@ const menuItems = [
     { to: "/subjects", label: "Subjects", icon: BookOpen },
     { to: "/assignments", label: "Assignments", icon: GraduationCap },
     { to: "/time-slots", label: "Time Slots", icon: Clock },
-    // add more later: sections, courses, departments, organisations
+    //{ to: "/management", label: "Management", icon: Building }, 
+    { to: "/organization", label: "Organization", icon: Building },
 ];
 
 export default function AdminLayout() {
@@ -26,10 +28,11 @@ export default function AdminLayout() {
                         <Link
                             key={item.to}
                             to={item.to}
-                            className={`flex items-center px-6 py-3.5 text-gray-700 hover:bg-gray-50 transition-colors ${location.pathname === item.to
+                            className={`flex items-center px-6 py-3.5 text-gray-700 hover:bg-gray-50 transition-colors ${
+                                location.pathname === item.to
                                     ? 'bg-blue-50 border-r-4 border-blue-600 text-blue-700 font-medium'
                                     : ''
-                                }`}
+                            }`}
                         >
                             <item.icon className="w-5 h-5 mr-3" />
                             {item.label}
