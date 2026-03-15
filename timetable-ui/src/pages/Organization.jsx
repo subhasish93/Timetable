@@ -7,6 +7,7 @@ function Organization() {
   const [successMsg, setSuccessMsg] = useState("");
 
   const API = "http://127.0.0.1:8000";
+  const token = localStorage.getItem("token");
 
   const handleSubmit = async () => {
     if (!organization.trim()) {
@@ -20,7 +21,10 @@ function Organization() {
     try {
       const res = await fetch(`${API}/organisation`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({
           name: organization.trim(),
           code: organization.trim().toUpperCase().slice(0, 3),

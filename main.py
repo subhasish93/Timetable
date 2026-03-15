@@ -9,6 +9,7 @@ from auth import verify_password, create_access_token
 import string
 
 from db import SessionLocal, engine
+from auth import get_current_user
 from models import (
     Base, Section, Course, TimeSlot, SubjectTeacher,
     Subject, Teacher, Timetable,
@@ -185,7 +186,16 @@ def generate_password(length=10):
 
 
 @app.post("/organisation", status_code=201)
-def create_organisation(data: OrganisationCreate, db: Session = Depends(get_db)):
+def create_organisation(
+    data: OrganisationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user) 
+):
+    if current_user.role != "super_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only super admin can create organisation"
+        )
 
     existing = db.query(Organisation).filter(
         Organisation.name == data.name

@@ -1,50 +1,81 @@
 // src/components/layout/AdminLayout.jsx
-import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Calendar, Users, BookOpen, Clock, GraduationCap, Building } from 'lucide-react';
-import Organization from '../../pages/Organization';
-
-const menuItems = [
-    { to: "/timetable", label: "Timetable", icon: Calendar },
-    { to: "/teachers", label: "Teachers", icon: Users },
-    { to: "/subjects", label: "Subjects", icon: BookOpen },
-    { to: "/assignments", label: "Assignments", icon: GraduationCap },
-    { to: "/time-slots", label: "Time Slots", icon: Clock },
-    //{ to: "/management", label: "Management", icon: Building }, 
-    { to: "/organization", label: "Organization", icon: Building },
-];
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Calendar, Users, BookOpen, Clock, GraduationCap, Building, LogOut } from 'lucide-react';
+import { jwtDecode } from "jwt-decode";
 
 export default function AdminLayout() {
+
     const location = useLocation();
+    const navigate = useNavigate();
+
+    const token = localStorage.getItem("token");
+
+    let role = null;
+
+    if (token) {
+        const decoded = jwtDecode(token);
+        role = decoded.role;
+    }
+
+    const menuItems = [
+        { to: "/timetable", label: "Timetable", icon: Calendar },
+        { to: "/teachers", label: "Teachers", icon: Users },
+        { to: "/subjects", label: "Subjects", icon: BookOpen },
+        { to: "/assignments", label: "Assignments", icon: GraduationCap },
+        { to: "/time-slots", label: "Time Slots", icon: Clock },
+
+        ...(role === "super_admin"
+            ? [{ to: "/organization", label: "Organization", icon: Building }]
+            : [])
+    ];
+
+    const logout = () => {
+        localStorage.removeItem("token");
+        navigate("/login");
+    };
 
     return (
         <div className="flex min-h-screen bg-gray-50">
+
             {/* Sidebar */}
-            <aside className="w-64 bg-white border-r shadow-sm flex-shrink-0">
+            <aside className="w-64 bg-white border-r shadow-sm flex flex-col">
+
                 <div className="p-6 border-b">
                     <h1 className="text-2xl font-bold text-blue-700">Timetable Admin</h1>
                 </div>
-                <nav className="mt-2">
+
+                <nav className="mt-2 flex-1">
                     {menuItems.map(item => (
                         <Link
                             key={item.to}
                             to={item.to}
-                            className={`flex items-center px-6 py-3.5 text-gray-700 hover:bg-gray-50 transition-colors ${
-                                location.pathname === item.to
+                            className={`flex items-center px-6 py-3.5 text-gray-700 hover:bg-gray-50 ${location.pathname === item.to
                                     ? 'bg-blue-50 border-r-4 border-blue-600 text-blue-700 font-medium'
                                     : ''
-                            }`}
+                                }`}
                         >
                             <item.icon className="w-5 h-5 mr-3" />
                             {item.label}
                         </Link>
                     ))}
                 </nav>
+
+                <div className="p-4 border-t">
+                    <button
+                        onClick={logout}
+                        className="flex items-center w-full px-4 py-2 text-red-600 hover:bg-red-50 rounded"
+                    >
+                        <LogOut className="w-5 h-5 mr-2" />
+                        Logout
+                    </button>
+                </div>
+
             </aside>
 
-            {/* Main content area */}
             <main className="flex-1 p-6 overflow-auto">
                 <Outlet />
             </main>
+
         </div>
     );
 }
