@@ -90,3 +90,8 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="User not found")
 
     return user
+
+def get_current_admin(user: User = Depends(get_current_user)):
+    if user.role not in ["admin", "superadmin"]:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    return user

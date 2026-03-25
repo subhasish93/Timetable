@@ -29,7 +29,6 @@ class OrganisationCreate(BaseModel):
 
 class DepartmentCreate(BaseModel):
     name: str
-    organisation_id: int
 
 
 # =========================

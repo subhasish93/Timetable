@@ -5,11 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pwdlib import PasswordHash
 import secrets
 from fastapi import HTTPException
-from auth import verify_password, create_access_token
+from auth import verify_password, create_access_token, get_current_user, get_current_admin
 import string
 
 from db import SessionLocal, engine
-from auth import get_current_user
 from models import (
     Base, Section, Course, TimeSlot, SubjectTeacher,
     Subject, Teacher, Timetable,
@@ -237,47 +236,63 @@ def create_organisation(
     }
 
 
-@app.post("/department", status_code=201)
-def create_department(data: DepartmentCreate, db: Session = Depends(get_db)):
-    org = db.query(Organisation).filter(Organisation.organisation_id == data.organisation_id).first()
-    if not org:
-        raise HTTPException(422, "Organisation not found")
+@app.post("/department")
+def create_department(
+    department: DepartmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    dept = Department(
+        name=department.name,
+        organisation_id=current_user.organisation_id
+    )
 
-    dept = Department(**data.dict())
     db.add(dept)
     db.commit()
     db.refresh(dept)
+
     return dept
 
+@app.get("/department")
+def get_departments(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    departments = db.query(Department).filter(
+        Department.organisation_id == current_user.organisation_id
+    ).all()
 
-@app.post("/course", status_code=201)
-def create_course(data: CourseCreate, db: Session = Depends(get_db)):
-    dept = db.query(Department).filter(Department.department_id == data.department_id).first()
-    if not dept:
-        raise HTTPException(422, "Department not found")
+    return departments
 
-    existing = db.query(Course).filter(Course.code == data.code).first()
-    if existing:
-        raise HTTPException(400, "Course code already exists")
 
-    course = Course(**data.dict())
-    db.add(course)
+@app.post("/course")
+def create_course(
+    course: CourseCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    course_obj = Course(**course.dict())
+    db.add(course_obj)
     db.commit()
-    db.refresh(course)
-    return course
+    db.refresh(course_obj)
+
+    return course_obj
 
 
-@app.post("/section", status_code=201)
-def create_section(data: SectionCreate, db: Session = Depends(get_db)):
-    course = db.query(Course).filter(Course.course_id == data.course_id).first()
-    if not course:
-        raise HTTPException(422, "Course not found")
+@app.post("/section")
+def create_section(
+    section: SectionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
 
-    section = Section(**data.dict())
-    db.add(section)
+    section_obj = Section(**section.dict())
+
+    db.add(section_obj)
     db.commit()
-    db.refresh(section)
-    return section
+    db.refresh(section_obj)
+
+    return section_obj
 
 
 @app.post("/subject", status_code=201)
@@ -293,17 +308,23 @@ def create_subject(data: SubjectCreate, db: Session = Depends(get_db)):
     return subject
 
 
-@app.post("/teacher", status_code=201)
-def create_teacher(data: TeacherCreate, db: Session = Depends(get_db)):
-    dept = db.query(Department).filter(Department.department_id == data.department_id).first()
-    if not dept:
-        raise HTTPException(422, "Department not found")
+@app.post("/teacher")
+def create_teacher(
+    teacher: TeacherCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
 
-    teacher = Teacher(**data.dict())
-    db.add(teacher)
+    teacher_obj = Teacher(
+        name=teacher.name,
+        department_id=teacher.department_id
+    )
+
+    db.add(teacher_obj)
     db.commit()
-    db.refresh(teacher)
-    return teacher
+    db.refresh(teacher_obj)
+
+    return teacher_obj
 
 
 @app.post("/subject-teacher", status_code=201)

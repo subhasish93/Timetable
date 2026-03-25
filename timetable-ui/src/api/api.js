@@ -6,6 +6,16 @@ const api = axios.create({
     headers: { 'Content-Type': 'application/json' },
 });
 
+api.interceptors.request.use((config) => {
+    const token = localStorage.getItem("token");
+
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    return config;
+});
+
 // Global error handler
 api.interceptors.response.use(
     res => res,
@@ -40,3 +50,18 @@ export const deleteTimetable = (id) => api.delete(`/timetable/${id}`);
 export const updateTimetable = (id, data) => api.put(`/timetable/${id}`, data);
 
 export default api;
+
+// ================= DEPARTMENT APIs =================
+
+// Get all departments
+export const getDepartments = () => api.get('/department');
+
+// Create department
+export const createDepartment = (data) => api.post('/department', data);
+
+// Delete department
+export const deleteDepartment = (id) => api.delete(`/department/${id}`);
+
+// Update department
+export const updateDepartment = (id, data) =>
+    api.put(`/department/${id}`, data);
