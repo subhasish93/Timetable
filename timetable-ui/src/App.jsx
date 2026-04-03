@@ -11,6 +11,7 @@ import SubjectAssignments from './pages/SubjectAssignments';
 import TimeSlots from './pages/TimeSlots';
 import Organization from './pages/Organization';
 import Department from './pages/Department';
+import Courses from './pages/Courses';
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
         >
           <Route path="/timetable" element={<TimetableManager />} />
           <Route path="/department" element={<Department />} />
+          <Route path="/courses" element={<Courses />} />
           <Route path="/teachers" element={<Teachers />} />
           <Route path="/subjects" element={<Subjects />} />
           <Route path="/assignments" element={<SubjectAssignments />} />

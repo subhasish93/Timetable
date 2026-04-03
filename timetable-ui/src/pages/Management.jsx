@@ -3,11 +3,14 @@ import { useState } from "react";
 function Management() {
   const [organization, setOrganization] = useState("");
   const [department, setDepartment] = useState("");
+  const [departmentSections, setDepartmentSections] = useState("");
   const [courseName, setCourseName] = useState("");
   const [courseCode, setCourseCode] = useState("");
   const [teacher, setTeacher] = useState("");
+  const [teacherSection, setTeacherSection] = useState("");
   const [subject, setSubject] = useState("");
   const [semester, setSemester] = useState("1");
+  const [subjectSection, setSubjectSection] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -18,54 +21,60 @@ function Management() {
   const resetForm = () => {
     setOrganization("");
     setDepartment("");
+    setDepartmentSections("");
     setCourseName("");
     setCourseCode("");
     setTeacher("");
+    setTeacherSection("");
     setSubject("");
+    setSubjectSection("");
     setSemester("1");
     setErrorMsg("");
     setSuccessMsg("");
   };
 
   const handleSubmit = async () => {
-    // Validation
     if (!organization.trim()) return setErrorMsg("Organization name is required");
     if (!department.trim()) return setErrorMsg("Department name is required");
+    if (!departmentSections.trim()) return setErrorMsg("Department sections are required (e.g., A,B,C)");
     if (!courseName.trim()) return setErrorMsg("Course name is required");
     if (!courseCode.trim()) return setErrorMsg("Course code is required");
     if (!teacher.trim()) return setErrorMsg("Teacher name is required");
+    if (!teacherSection.trim()) return setErrorMsg("Teacher section is required");
     if (!subject.trim()) return setErrorMsg("Subject name is required");
+    if (!subjectSection.trim()) return setErrorMsg("Subject section is required");
 
     setLoading(true);
     setErrorMsg("");
     setSuccessMsg("");
 
+    const token = localStorage.getItem("token");
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
     try {
-      // 1. Organisation
       const orgRes = await fetch(`${API}/organisation`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ name: organization.trim() }),
       });
       if (!orgRes.ok) throw await getError(orgRes);
       const org = await orgRes.json();
 
-      // 2. Department
       const deptRes = await fetch(`${API}/department`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           name: department.trim(),
-          organisation_id: org.organisation_id,
+          sections: departmentSections.trim(),
         }),
       });
       if (!deptRes.ok) throw await getError(deptRes);
       const dept = await deptRes.json();
 
-      // 3. Course
       const courseRes = await fetch(`${API}/course`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           name: courseName.trim(),
           code: courseCode.trim().toUpperCase(),
@@ -74,58 +83,36 @@ function Management() {
         }),
       });
       if (!courseRes.ok) throw await getError(courseRes);
-      const courseData = await courseRes.json();
+      const course = await courseRes.json();
 
-      // ── NEW: Create default sections A and B ───────────────────────────────
-      console.log("→ Creating default sections A and B");
-      const sectionsToCreate = ["A", "B"];
-
-      for (const secName of sectionsToCreate) {
-        const sectionRes = await fetch(`${API}/section`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: secName,
-            semester: Number(semester),
-            course_id: courseData.course_id,
-          }),
-        });
-
-        if (!sectionRes.ok) throw await getError(sectionRes);
-
-        const sectionData = await sectionRes.json();
-        console.log(`Section ${secName} created → ID: ${sectionData.section_id}`);
-      }
-
-      // 4. Teacher
       const teacherRes = await fetch(`${API}/teacher`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           name: teacher.trim(),
           department_id: dept.department_id,
+          section: teacherSection.trim(),
         }),
       });
       if (!teacherRes.ok) throw await getError(teacherRes);
       const teacherData = await teacherRes.json();
 
-      // 5. Subject
       const subjectRes = await fetch(`${API}/subject`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           name: subject.trim(),
           semester: Number(semester),
-          course_id: courseData.course_id,
+          course_id: course.course_id,
+          section: subjectSection.trim(),
         }),
       });
       if (!subjectRes.ok) throw await getError(subjectRes);
       const subjectData = await subjectRes.json();
 
-      // 6. Mapping
       const mapRes = await fetch(`${API}/subject-teacher`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           subject_id: subjectData.subject_id,
           teacher_id: teacherData.teacher_id,
@@ -133,9 +120,8 @@ function Management() {
       });
       if (!mapRes.ok) throw await getError(mapRes);
 
-      // Success!
-      setSuccessMsg("🎉 Everything created successfully! (including sections A & B)");
-      setTimeout(() => resetForm(), 6000);
+      setSuccessMsg("Setup completed successfully! You can now use the admin panel to manage your timetable.");
+      setTimeout(() => resetForm(), 8000);
 
     } catch (err) {
       console.error("Chain failed:", err);
@@ -145,7 +131,6 @@ function Management() {
     }
   };
 
-  // Helper to get readable error from backend
   async function getError(res) {
     try {
       const data = await res.json();
@@ -158,8 +143,9 @@ function Management() {
   return (
     <div className="max-w-6xl mx-auto p-6 md:p-8">
       <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mb-8 text-center">
-        College Management Setup
+        Initial Setup Wizard
       </h1>
+      <p className="text-center text-gray-500 mb-8">Create your organization, department, course, teacher, and subject in one go.</p>
 
       {errorMsg && (
         <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 text-red-700 rounded-r">
@@ -205,6 +191,21 @@ function Management() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Department Sections <span className="text-red-600">*</span>
+            </label>
+            <input
+              type="text"
+              value={departmentSections}
+              onChange={(e) => setDepartmentSections(e.target.value)}
+              placeholder="e.g. A,B,C"
+              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+              disabled={loading}
+            />
+            <p className="text-xs text-gray-500 mt-1">Comma-separated section names</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Course Name <span className="text-red-600">*</span>
             </label>
             <input
@@ -233,6 +234,22 @@ function Management() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Semester
+            </label>
+            <select
+              value={semester}
+              onChange={(e) => setSemester(e.target.value)}
+              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white transition"
+              disabled={loading}
+            >
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+                <option key={s} value={s}>Semester {s}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Teacher Name <span className="text-red-600">*</span>
             </label>
             <input
@@ -243,6 +260,23 @@ function Management() {
               className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
               disabled={loading}
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Teacher Section <span className="text-red-600">*</span>
+            </label>
+            <select
+              value={teacherSection}
+              onChange={(e) => setTeacherSection(e.target.value)}
+              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white transition"
+              disabled={loading}
+            >
+              <option value="">Select Section</option>
+              {departmentSections.split(",").map(s => s.trim()).filter(s => s).map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -259,20 +293,19 @@ function Management() {
             />
           </div>
 
-          <div className="lg:col-span-3">
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Semester <span className="text-red-600">*</span>
+              Subject Section <span className="text-red-600">*</span>
             </label>
             <select
-              value={semester}
-              onChange={(e) => setSemester(e.target.value)}
-              className="w-full md:w-48 px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white transition"
+              value={subjectSection}
+              onChange={(e) => setSubjectSection(e.target.value)}
+              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white transition"
               disabled={loading}
             >
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
-                <option key={s} value={s}>
-                  Semester {s}
-                </option>
+              <option value="">Select Section</option>
+              {departmentSections.split(",").map(s => s.trim()).filter(s => s).map((s) => (
+                <option key={s} value={s}>{s}</option>
               ))}
             </select>
           </div>
@@ -290,10 +323,9 @@ function Management() {
           <button
             onClick={handleSubmit}
             disabled={loading}
-            className={`px-6 py-3 rounded-lg font-medium text-white transition ${loading ? "bg-blue-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
-              }`}
+            className={`px-6 py-3 rounded-lg font-medium text-white transition ${loading ? "bg-blue-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"}`}
           >
-            {loading ? "Creating..." : "Create Everything"}
+            {loading ? "Creating..." : "Complete Setup"}
           </button>
         </div>
       </div>

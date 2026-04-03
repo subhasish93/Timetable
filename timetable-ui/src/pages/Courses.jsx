@@ -3,54 +3,44 @@ import api from "../api/api";
 import toast from "react-hot-toast";
 import {
     PlusCircle,
-    Users,
+    GraduationCap,
     RefreshCw,
     AlertCircle,
-    X,
-    GraduationCap
+    BookOpen
 } from "lucide-react";
 
-function Teachers() {
-    const [teachers, setTeachers] = useState([]);
+function Courses() {
+    const [courses, setCourses] = useState([]);
     const [departments, setDepartments] = useState([]);
     const [name, setName] = useState("");
+    const [durationYears, setDurationYears] = useState("4");
     const [selectedDept, setSelectedDept] = useState("");
-    const [selectedSection, setSelectedSection] = useState("");
-    const [availableSections, setAvailableSections] = useState([]);
-    const [deptLoading, setDeptLoading] = useState(true);
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState(null);
 
     const fetchDepartments = async () => {
-        setDeptLoading(true);
         try {
-            console.log("Fetching departments...");
             const res = await api.get("/department");
-            console.log("Departments response:", res.data);
             setDepartments(res.data || []);
         } catch (err) {
-            console.error("Failed to fetch departments:", err);
-            toast.error("Failed to load departments");
-        } finally {
-            setDeptLoading(false);
+            console.error(err);
         }
     };
 
-    const fetchTeachers = async () => {
+    const fetchCourses = async () => {
         setLoading(true);
         setError(null);
         try {
             const params = {};
             if (selectedDept) params.department_id = selectedDept;
-            if (selectedSection) params.section = selectedSection;
             
-            const res = await api.get("/teachers", { params });
-            setTeachers(res.data || []);
+            const res = await api.get("/courses", { params });
+            setCourses(res.data || []);
         } catch (err) {
             console.error(err);
-            toast.error("Failed to load teachers");
-            setError("Could not load teachers. Please try again.");
+            toast.error("Failed to load courses");
+            setError("Could not load courses. Please try again.");
         } finally {
             setLoading(false);
         }
@@ -61,34 +51,16 @@ function Teachers() {
     }, []);
 
     useEffect(() => {
-        if (selectedDept) {
-            const dept = departments.find(d => d.department_id === parseInt(selectedDept));
-            if (dept && dept.sections) {
-                setAvailableSections(dept.sections.split(",").map(s => s.trim()));
-            } else {
-                setAvailableSections([]);
-            }
-            setSelectedSection("");
-        } else {
-            setAvailableSections([]);
-        }
-    }, [selectedDept, departments]);
-
-    useEffect(() => {
-        fetchTeachers();
-    }, [selectedDept, selectedSection]);
+        fetchCourses();
+    }, [selectedDept]);
 
     const handleCreate = async () => {
         if (!name.trim()) {
-            toast.error("Please enter teacher name");
+            toast.error("Please enter course name");
             return;
         }
         if (!selectedDept) {
             toast.error("Please select a department");
-            return;
-        }
-        if (!selectedSection) {
-            toast.error("Please select a section");
             return;
         }
 
@@ -96,28 +68,23 @@ function Teachers() {
         setError(null);
 
         try {
-            await api.post("/teacher", {
+            await api.post("/course", {
                 name: name.trim(),
-                department_id: parseInt(selectedDept),
-                section: selectedSection
+                duration_years: parseInt(durationYears),
+                department_id: parseInt(selectedDept)
             });
 
-            toast.success("Teacher created successfully");
+            toast.success("Course created successfully");
             setName("");
-            await fetchTeachers();
+            setDurationYears("4");
+            await fetchCourses();
         } catch (err) {
             console.error(err);
-            const message = err.response?.data?.detail || err.response?.data?.message || "Failed to create teacher";
+            const message = err.response?.data?.detail || err.response?.data?.message || "Failed to create course";
             toast.error(message);
             setError(message);
         } finally {
             setSubmitting(false);
-        }
-    };
-
-    const handleKeyDown = (e) => {
-        if (e.key === "Enter" && !submitting && name.trim() && selectedDept && selectedSection) {
-            handleCreate();
         }
     };
 
@@ -127,52 +94,43 @@ function Teachers() {
 
                 <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-3">
-                        <Users className="h-8 w-8 text-blue-600" />
+                        <GraduationCap className="h-8 w-8 text-blue-600" />
                         <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">
-                            Teacher Management
+                            Course Management
                         </h1>
                     </div>
 
-                    <div className="flex gap-2">
-                        <button
-                            onClick={fetchDepartments}
-                            disabled={deptLoading}
-                            className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50"
-                            title="Refresh Departments"
-                        >
-                            <RefreshCw className={`h-4 w-4 ${deptLoading ? "animate-spin" : ""}`} />
-                            Depts
-                        </button>
-                        <button
-                            onClick={fetchTeachers}
-                            disabled={loading}
-                            className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50"
-                        >
-                            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                            Refresh
-                        </button>
-                    </div>
+                    <button
+                        onClick={fetchCourses}
+                        disabled={loading}
+                        className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50"
+                    >
+                        <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                        Refresh
+                    </button>
                 </div>
 
                 <div className="mb-10 rounded-xl border bg-white shadow-sm">
                     <div className="border-b px-6 py-4">
                         <h2 className="text-lg font-semibold text-gray-900">
-                            Add New Teacher
+                            Add New Course
                         </h2>
+                        <p className="text-sm text-gray-500 mt-1">
+                            Course code will be auto-generated. Sections are defined in the Department.
+                        </p>
                     </div>
 
                     <div className="p-6">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Teacher Name <span className="text-red-500">*</span>
+                                    Course Name <span className="text-red-500">*</span>
                                 </label>
                                 <input
                                     type="text"
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
-                                    onKeyDown={handleKeyDown}
-                                    placeholder="e.g. John Doe"
+                                    placeholder="e.g. B.Tech Computer Science"
                                     disabled={submitting}
                                     className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all disabled:bg-gray-100"
                                 />
@@ -185,16 +143,13 @@ function Teachers() {
                                 <select
                                     value={selectedDept}
                                     onChange={(e) => setSelectedDept(e.target.value)}
-                                    disabled={submitting || deptLoading}
+                                    disabled={submitting}
                                     className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all disabled:bg-gray-100"
                                 >
-                                    <option value="">{deptLoading ? "Loading..." : "Select Department"}</option>
-                                    {departments.length === 0 && !deptLoading && (
-                                        <option value="" disabled>No departments found. Create one first.</option>
-                                    )}
+                                    <option value="">Select Department</option>
                                     {departments.map((dept) => (
                                         <option key={dept.department_id} value={dept.department_id}>
-                                            {dept.name} {dept.sections ? `(${dept.sections})` : "(No sections)"}
+                                            {dept.name}
                                         </option>
                                     ))}
                                 </select>
@@ -202,42 +157,39 @@ function Teachers() {
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Section <span className="text-red-500">*</span>
+                                    Duration (Years)
                                 </label>
                                 <select
-                                    value={selectedSection}
-                                    onChange={(e) => setSelectedSection(e.target.value)}
-                                    disabled={submitting || !selectedDept}
+                                    value={durationYears}
+                                    onChange={(e) => setDurationYears(e.target.value)}
+                                    disabled={submitting}
                                     className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all disabled:bg-gray-100"
                                 >
-                                    <option value="">Select Section</option>
-                                    {availableSections.map((section) => (
-                                        <option key={section} value={section}>
-                                            {section}
-                                        </option>
+                                    {[1, 2, 3, 4, 5, 6].map((y) => (
+                                        <option key={y} value={y}>{y} Year{y > 1 ? "s" : ""} ({y * 2} Semesters)</option>
                                     ))}
                                 </select>
                             </div>
+                        </div>
 
-                            <div className="flex items-end">
-                                <button
-                                    onClick={handleCreate}
-                                    disabled={submitting || !name.trim() || !selectedDept || !selectedSection || loading}
-                                    className="w-full flex items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-                                >
-                                    {submitting ? (
-                                        <>
-                                            <RefreshCw className="h-4 w-4 animate-spin" />
-                                            Creating...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <PlusCircle className="h-4 w-4" />
-                                            Add Teacher
-                                        </>
-                                    )}
-                                </button>
-                            </div>
+                        <div className="mt-6">
+                            <button
+                                onClick={handleCreate}
+                                disabled={submitting || !name.trim() || !selectedDept || loading}
+                                className="flex items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                            >
+                                {submitting ? (
+                                    <>
+                                        <RefreshCw className="h-4 w-4 animate-spin" />
+                                        Creating...
+                                    </>
+                                ) : (
+                                    <>
+                                        <PlusCircle className="h-4 w-4" />
+                                        Create Course
+                                    </>
+                                )}
+                            </button>
                         </div>
 
                         {error && (
@@ -258,31 +210,12 @@ function Teachers() {
                             <select
                                 value={selectedDept}
                                 onChange={(e) => setSelectedDept(e.target.value)}
-                                disabled={deptLoading}
                                 className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
                             >
-                                <option value="">{deptLoading ? "Loading..." : "All Departments"}</option>
+                                <option value="">All Departments</option>
                                 {departments.map((dept) => (
                                     <option key={dept.department_id} value={dept.department_id}>
                                         {dept.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Filter by Section
-                            </label>
-                            <select
-                                value={selectedSection}
-                                onChange={(e) => setSelectedSection(e.target.value)}
-                                disabled={!selectedDept}
-                                className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none disabled:bg-gray-100"
-                            >
-                                <option value="">All Sections</option>
-                                {availableSections.map((section) => (
-                                    <option key={section} value={section}>
-                                        {section}
                                     </option>
                                 ))}
                             </select>
@@ -293,7 +226,7 @@ function Teachers() {
                 <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
                     <div className="border-b px-6 py-4">
                         <h2 className="text-lg font-semibold text-gray-900">
-                            All Teachers ({teachers.length})
+                            All Courses ({courses.length})
                         </h2>
                     </div>
 
@@ -301,9 +234,9 @@ function Teachers() {
                         <div className="flex justify-center items-center py-16">
                             <RefreshCw className="h-8 w-8 animate-spin text-blue-600" />
                         </div>
-                    ) : teachers.length === 0 ? (
+                    ) : courses.length === 0 ? (
                         <div className="py-16 text-center text-gray-500">
-                            No teachers found. Add your first teacher above.
+                            No courses found. Add your first course above.
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
@@ -314,35 +247,45 @@ function Teachers() {
                                             ID
                                         </th>
                                         <th className="px-6 py-3.5 text-left text-sm font-semibold text-gray-900">
-                                            Teacher Name
+                                            Course Name
+                                        </th>
+                                        <th className="px-6 py-3.5 text-left text-sm font-semibold text-gray-900">
+                                            Code
                                         </th>
                                         <th className="px-6 py-3.5 text-left text-sm font-semibold text-gray-900">
                                             Department
                                         </th>
                                         <th className="px-6 py-3.5 text-left text-sm font-semibold text-gray-900">
-                                            Section
+                                            Duration
+                                        </th>
+                                        <th className="px-6 py-3.5 text-left text-sm font-semibold text-gray-900">
+                                            Semesters
                                         </th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200 bg-white">
-                                    {teachers.map((teacher) => (
+                                    {courses.map((course) => (
                                         <tr
-                                            key={teacher.teacher_id}
+                                            key={course.course_id}
                                             className="hover:bg-gray-50 transition-colors"
                                         >
                                             <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                                {teacher.teacher_id}
+                                                {course.course_id}
                                             </td>
                                             <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
-                                                {teacher.name}
+                                                {course.name}
                                             </td>
                                             <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                                {teacher.department?.name || "-"}
+                                                <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">{course.code}</span>
                                             </td>
-                                            <td className="whitespace-nowrap px-6 py-4">
-                                                <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
-                                                    {teacher.section}
-                                                </span>
+                                            <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                                                {course.department?.name || "-"}
+                                            </td>
+                                            <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                                                {course.duration_years} Year{course.duration_years > 1 ? "s" : ""}
+                                            </td>
+                                            <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                                                1 - {course.duration_years * 2}
                                             </td>
                                         </tr>
                                     ))}
@@ -357,4 +300,4 @@ function Teachers() {
     );
 }
 
-export default Teachers;
+export default Courses;

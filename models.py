@@ -29,6 +29,7 @@ class Department(Base):
 
     department_id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
+    sections = Column(String, nullable=True)
 
     organisation_id = Column(
         Integer,
@@ -61,31 +62,7 @@ class Course(Base):
     )
 
     department = relationship("Department", back_populates="courses")
-    sections = relationship("Section", back_populates="course", cascade="all, delete")
     subjects = relationship("Subject", back_populates="course", cascade="all, delete")
-
-
-# =========================
-# SECTION
-# =========================
-class Section(Base):
-    __tablename__ = "section"
-
-    section_id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    semester = Column(Integer, nullable=False)
-
-    course_id = Column(
-        Integer,
-        ForeignKey("course.course_id", ondelete="CASCADE")
-    )
-
-    course = relationship("Course", back_populates="sections")
-    timetables = relationship("Timetable", back_populates="section", cascade="all, delete")
-
-    __table_args__ = (
-        UniqueConstraint("name", "course_id", "semester", name="unique_section_per_course_sem"),
-    )
 
 
 # =========================
@@ -97,6 +74,7 @@ class Subject(Base):
     subject_id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     semester = Column(Integer, nullable=False)
+    section = Column(String, nullable=False)
 
     course_id = Column(
         Integer,
@@ -107,7 +85,7 @@ class Subject(Base):
     teachers = relationship("SubjectTeacher", back_populates="subject", cascade="all, delete")
 
     __table_args__ = (
-        UniqueConstraint("name", "course_id", "semester", name="unique_subject_per_course_sem"),
+        UniqueConstraint("name", "course_id", "semester", "section", name="unique_subject_per_course_sem_section"),
     )
 
 
@@ -119,6 +97,7 @@ class Teacher(Base):
 
     teacher_id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
+    section = Column(String, nullable=False)
 
     department_id = Column(
         Integer,
@@ -129,7 +108,7 @@ class Teacher(Base):
     subjects = relationship("SubjectTeacher", back_populates="teacher", cascade="all, delete")
 
     __table_args__ = (
-        UniqueConstraint("name", "department_id", name="unique_teacher_per_department"),
+        UniqueConstraint("name", "department_id", "section", name="unique_teacher_per_dept_section"),
     )
 
 
@@ -186,10 +165,17 @@ class Timetable(Base):
 
     timetable_id = Column(Integer, primary_key=True)
 
-    section_id = Column(
+    organisation_id = Column(
         Integer,
-        ForeignKey("section.section_id", ondelete="CASCADE")
+        ForeignKey("organisation.organisation_id", ondelete="CASCADE")
     )
+
+    department_id = Column(
+        Integer,
+        ForeignKey("department.department_id", ondelete="CASCADE")
+    )
+
+    section = Column(String, nullable=False)
 
     subject_teacher_id = Column(
         Integer,
@@ -203,12 +189,13 @@ class Timetable(Base):
 
     room_no = Column(String, nullable=False)
 
-    section = relationship("Section", back_populates="timetables")
+    organisation = relationship("Organisation")
+    department = relationship("Department")
     slot = relationship("TimeSlot", back_populates="timetables")
     subject_teacher = relationship("SubjectTeacher", back_populates="timetables")
 
     __table_args__ = (
-        UniqueConstraint("section_id", "slot_id", name="section_slot_unique"),
+        UniqueConstraint("department_id", "section", "slot_id", name="dept_section_slot_unique"),
         UniqueConstraint("subject_teacher_id", "slot_id", name="teacher_slot_unique"),
         UniqueConstraint("room_no", "slot_id", name="room_slot_unique"),
     )

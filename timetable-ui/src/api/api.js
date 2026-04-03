@@ -28,18 +28,15 @@ api.interceptors.response.use(
 
 // ================= API FUNCTIONS =================
 
-// Sections list
-export const getSections = () => api.get('/sections');
-
 // Time slots
 export const getTimeSlots = () => api.get('/time-slots');
 
-// Subject + Teacher dropdown
-export const getSubjectTeachers = () => api.get('/subject-teachers-full');
+// Subject + Teacher dropdown (with optional filters)
+export const getSubjectTeachers = (params) => api.get('/subject-teachers-full', { params });
 
-// Timetable for a section
-export const getSectionTimetable = (sectionId) =>
-    api.get(`/timetable/section/${sectionId}`);
+// Timetable for department + section
+export const getDeptSectionTimetable = (departmentId, section) =>
+    api.get('/timetable/department-section', { params: { department_id: departmentId, section } });
 
 // Create timetable entry
 export const createTimetable = (data) => api.post('/timetable', data);
@@ -65,3 +62,18 @@ export const deleteDepartment = (id) => api.delete(`/department/${id}`);
 // Update department
 export const updateDepartment = (id, data) =>
     api.put(`/department/${id}`, data);
+
+// ================= COURSE APIs =================
+
+export const getCourses = () => api.get('/course');
+export const createCourse = (data) => api.post('/course', data);
+
+// ================= TEACHER APIs =================
+
+export const getTeachers = (params) => api.get('/teachers', { params });
+export const createTeacher = (data) => api.post('/teacher', data);
+
+// ================= SUBJECT APIs =================
+
+export const getSubjects = (params) => api.get('/subjects', { params });
+export const createSubject = (data) => api.post('/subject', data);

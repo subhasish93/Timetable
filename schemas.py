@@ -7,7 +7,8 @@ from typing import Optional
 # =========================
 
 class TimetableCreate(BaseModel):
-    section_id: int
+    department_id: int
+    section: str
     subject_teacher_id: int
     slot_id: int
     room_no: str
@@ -29,6 +30,7 @@ class OrganisationCreate(BaseModel):
 
 class DepartmentCreate(BaseModel):
     name: str
+    sections: str
 
 
 # =========================
@@ -37,19 +39,9 @@ class DepartmentCreate(BaseModel):
 
 class CourseCreate(BaseModel):
     name: str
-    code: str
+    code: Optional[str] = None
     duration_years: int
     department_id: int
-
-
-# =========================
-# SECTION
-# =========================
-
-class SectionCreate(BaseModel):
-    name: str
-    semester: int
-    course_id: int
 
 
 # =========================
@@ -60,6 +52,7 @@ class SubjectCreate(BaseModel):
     name: str
     semester: int
     course_id: int
+    section: str
 
 
 # =========================
@@ -69,6 +62,7 @@ class SubjectCreate(BaseModel):
 class TeacherCreate(BaseModel):
     name: str
     department_id: int
+    section: str
 
 
 # =========================

@@ -17,7 +17,8 @@ import {
     LogOut,
     LayoutDashboard,
     ChevronRight,
-    Layers
+    Layers,
+    BookMarked
 } from 'lucide-react';
 import { jwtDecode } from "jwt-decode";
 
@@ -25,6 +26,7 @@ const BASE_MENU = [
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { to: "/timetable", label: "Timetable", icon: Calendar },
     { to: "/department", label: "Departments", icon: Layers },
+    { to: "/courses", label: "Courses", icon: BookMarked },
     { to: "/teachers", label: "Teachers", icon: Users },
     { to: "/subjects", label: "Subjects", icon: BookOpen },
     { to: "/assignments", label: "Assignments", icon: GraduationCap },
