@@ -1,293 +1,326 @@
-// src/pages/TimetableManager.jsx
+import { useEffect, useState, useMemo } from 'react';
+import { Plus, Trash2, X } from 'lucide-react';
+import { getTimetableByTerm, createTimetableSlot, deleteTimetableSlot, getTerms, getFaculties, getRooms, getSubjects, getCourses, getDepartments } from '../api/api';
+import toast from 'react-hot-toast';
 
-import { useState, useEffect } from 'react';
-import toast, { Toaster } from 'react-hot-toast';
-import {
-    Calendar,
-    BookOpen,
-    Trash2,
-    Pencil,
-} from 'lucide-react';
-import {
-    getSections,
-    getTimeSlots,
-    getSubjectTeachers,
-    getSectionTimetable,
-    createTimetable,
-    deleteTimetable,
-    updateTimetable,
-} from '../api/api'; 
-
-const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 
 export default function TimetableManager() {
-    const [sections, setSections] = useState([]);
     const [slots, setSlots] = useState([]);
-    const [subjectTeachers, setSubjectTeachers] = useState([]);
-
-    const [selectedSection, setSelectedSection] = useState(null);
-    const [timetable, setTimetable] = useState([]);
-
-    // ── Edit mode state ───────────────────────────────────────
-    const [isEditing, setIsEditing] = useState(false);
-    const [editingId, setEditingId] = useState(null);
-
+    const [terms, setTerms] = useState([]);
+    const [subjects, setSubjects] = useState([]);
+    const [faculties, setFaculties] = useState([]);
+    const [rooms, setRooms] = useState([]);
+    const [departments, setDepartments] = useState([]);
+    const [selectedTerm, setSelectedTerm] = useState('');
+    const [selectedTermInfo, setSelectedTermInfo] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [showModal, setShowModal] = useState(false);
     const [form, setForm] = useState({
-        section_id: 0,
-        subject_teacher_id: 0,
-        slot_id: 0,
-        room_no: '',
+        subject_id: '', faculty_id: '', section_id: null, batch_id: null, room_id: '', day_of_week: 'MONDAY', start_time: '09:00', end_time: '10:00'
     });
+    const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        Promise.all([
-            getSections().then(r => setSections(r.data)),
-            getTimeSlots().then(r => setSlots(r.data)),
-            getSubjectTeachers().then(r => setSubjectTeachers(r.data)),
-        ]).catch(() => toast.error('Failed to load initial data'));
+        loadInitialData();
     }, []);
 
-    useEffect(() => {
-        if (selectedSection) {
-            getSectionTimetable(selectedSection)
-                .then(r => setTimetable(r.data))
-                .catch(() => { });
-            setForm(prev => ({ ...prev, section_id: selectedSection }));
-        }
-    }, [selectedSection]);
-
-    // Reset form to "create" mode
-    const resetForm = () => {
-        setForm({
-            section_id: selectedSection || 0,
-            subject_teacher_id: 0,
-            slot_id: 0,
-            room_no: '',
-        });
-        setIsEditing(false);
-        setEditingId(null);
-    };
-
-    const handleSubmit = async () => {
-        if (!form.section_id || !form.subject_teacher_id || !form.slot_id || !form.room_no.trim()) {
-            toast.error('Please fill all fields');
-            return;
-        }
-
+    const loadInitialData = async () => {
         try {
-            if (isEditing) {
-                // ── UPDATE ───────────────────────────────────────
-                await updateTimetable(editingId, form);
-                toast.success('Entry updated!');
-            } else {
-                // ── CREATE ───────────────────────────────────────
-                await createTimetable(form);
-                toast.success('Entry added!');
-            }
+            const [termsRes, facultiesRes, roomsRes, coursesRes, deptsRes] = await Promise.all([
+                getTerms(),
+                getFaculties(),
+                getRooms(),
+                getCourses(),
+                getDepartments()
+            ]);
 
-            // Refresh timetable
-            if (selectedSection) {
-                const res = await getSectionTimetable(selectedSection);
-                setTimetable(res.data);
-            }
+            const termsWithCourse = termsRes.data.map(t => {
+                const course = coursesRes.data.find(c => c.id === t.course_id);
+                const dept = course ? deptsRes.data.find(d => d.id === course.department_id) : null;
+                return { ...t, course_name: course?.name || 'Unknown', department_id: course?.department_id, department_name: dept?.name };
+            });
 
-            resetForm();
+            setTerms(termsWithCourse);
+            setFaculties(facultiesRes.data);
+            setRooms(roomsRes.data);
+            setDepartments(deptsRes.data);
+
+            const allSubjects = [];
+            for (const term of termsRes.data) {
+                try {
+                    const subsRes = await getSubjects(term.id);
+                    allSubjects.push(...subsRes.data.map(s => ({ ...s, term_id: term.id })));
+                } catch (e) {}
+            }
+            setSubjects(allSubjects);
         } catch (err) {
-            // error handled by interceptor / axios
+            console.error(err);
+        } finally {
+            setLoading(false);
         }
     };
 
-    const handleEdit = (entry) => {
-        setIsEditing(true);
-        setEditingId(entry.timetable_id);
+    const loadTimetable = async (termId) => {
+        if (!termId) return;
+        try {
+            const res = await getTimetableByTerm(termId);
+            setSlots(res.data);
+        } catch (err) {
+            console.error(err);
+        }
+    };
 
-        // Pre-fill form
-        setForm({
-            section_id: selectedSection,
-            subject_teacher_id: entry.subject_teacher_id || 0,   // adjust if field name is different in response
-            slot_id: entry.slot_id || 0,
-            room_no: entry.room_no || '',
-        });
+    const selectedSubject = useMemo(() => {
+        return subjects.find(s => s.id === parseInt(form.subject_id));
+    }, [subjects, form.subject_id]);
 
-        // Optional: scroll to form
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+    const selectedSubjectDepartmentId = useMemo(() => {
+        if (!selectedSubject || !selectedTermInfo) return null;
+        return selectedTermInfo.department_id;
+    }, [selectedSubject, selectedTermInfo]);
+
+    const filteredFaculties = useMemo(() => {
+        if (!selectedSubjectDepartmentId) return faculties;
+        return faculties.filter(f => f.department_id === selectedSubjectDepartmentId);
+    }, [faculties, selectedSubjectDepartmentId]);
+
+    const filteredRooms = useMemo(() => {
+        if (!selectedSubjectDepartmentId) return rooms;
+        return rooms.filter(r => r.department_id === selectedSubjectDepartmentId);
+    }, [rooms, selectedSubjectDepartmentId]);
+
+    const handleTermChange = (e) => {
+        const termId = e.target.value;
+        setSelectedTerm(termId);
+        const term = terms.find(t => t.id === parseInt(termId));
+        setSelectedTermInfo(term);
+        setForm({ ...form, academic_term_id: termId, subject_id: '', faculty_id: '', room_id: '' });
+        if (termId) loadTimetable(termId);
+        else setSlots([]);
+    };
+
+    const handleSubjectChange = (e) => {
+        const subjectId = e.target.value;
+        setForm({ ...form, subject_id: subjectId, faculty_id: '', room_id: '' });
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setSaving(true);
+        try {
+            const data = {
+                academic_term_id: parseInt(selectedTerm),
+                subject_id: parseInt(form.subject_id),
+                faculty_id: parseInt(form.faculty_id),
+                section_id: form.section_id ? parseInt(form.section_id) : null,
+                batch_id: form.batch_id ? parseInt(form.batch_id) : null,
+                room_id: parseInt(form.room_id),
+                day_of_week: form.day_of_week,
+                start_time: form.start_time + ':00',
+                end_time: form.end_time + ':00'
+            };
+            await createTimetableSlot(data);
+            toast.success('Slot created');
+            setShowModal(false);
+            setForm({ subject_id: '', faculty_id: '', section_id: null, batch_id: null, room_id: '', day_of_week: 'MONDAY', start_time: '09:00', end_time: '10:00' });
+            loadTimetable(selectedTerm);
+        } catch (err) {
+            // Error handled by interceptor
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleDelete = async (id) => {
-        if (!window.confirm('Delete this entry?')) return;
-
+        if (!confirm('Delete this slot?')) return;
         try {
-            await deleteTimetable(id);
-            toast.success('Deleted');
-            setTimetable(prev => prev.filter(e => e.timetable_id !== id));
+            await deleteTimetableSlot(id);
+            toast.success('Slot deleted');
+            loadTimetable(selectedTerm);
         } catch (err) {
-            // handled elsewhere
+            // Error handled by interceptor
         }
     };
 
+    const getSlotsByDay = (day) => slots.filter(s => s.day_of_week === day);
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+        );
+    }
+
     return (
-        <div className="container mx-auto p-4 max-w-7xl">
-            <Toaster position="top-right" />
-
-            <h1 className="text-3xl font-bold mb-6 text-center flex items-center justify-center gap-3">
-                <Calendar className="w-8 h-8 text-blue-600" /> Timetable Management
-            </h1>
-
-            {/* Form / Controls */}
-            <div className="bg-white p-6 rounded-lg shadow mb-8">
-                <h2 className="text-xl font-semibold mb-4">
-                    {isEditing ? 'Edit Timetable Entry' : 'Add New Entry'}
-                </h2>
-
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                    {/* Section – usually fixed when editing */}
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Section</label>
-                        <select
-                            className="w-full border rounded px-3 py-2"
-                            value={selectedSection || ''}
-                            onChange={e => setSelectedSection(Number(e.target.value) || null)}
-                            disabled={isEditing} // prevent changing section while editing
-                        >
-                            <option value="">Select section to view</option>
-                            {sections.map(s => (
-                                <option key={s.section_id} value={s.section_id}>
-                                    {s.name} ({s.course} - Sem {s.semester})
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Subject + Teacher</label>
-                        <select
-                            className="w-full border rounded px-3 py-2"
-                            value={form.subject_teacher_id}
-                            onChange={e => setForm({ ...form, subject_teacher_id: Number(e.target.value) })}
-                        >
-                            <option value={0}>Select assignment</option>
-                            {subjectTeachers.map(st => (
-                                <option key={st.subject_teacher_id} value={st.subject_teacher_id}>
-                                    {st.subject_name} – {st.teacher_name}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Time Slot</label>
-                        <select
-                            className="w-full border rounded px-3 py-2"
-                            value={form.slot_id}
-                            onChange={e => setForm({ ...form, slot_id: Number(e.target.value) })}
-                        >
-                            <option value={0}>Select slot</option>
-                            {slots.map(s => (
-                                <option key={s.slot_id} value={s.slot_id}>
-                                    {s.day} {s.start} – {s.end}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Room No</label>
-                        <input
-                            type="text"
-                            className="w-full border rounded px-3 py-2"
-                            placeholder="e.g. LT-204"
-                            value={form.room_no}
-                            onChange={e => setForm({ ...form, room_no: e.target.value })}
-                        />
-                    </div>
+        <div>
+            <div className="flex items-center justify-between mb-6">
+                <div>
+                    <h1 className="text-2xl font-bold text-gray-900">Timetable</h1>
+                    {selectedTermInfo && (
+                        <p className="text-sm text-gray-500 mt-1">
+                            {selectedTermInfo.course_name} - Semester {selectedTermInfo.term_number}
+                        </p>
+                    )}
                 </div>
-
-                <div className="flex gap-3">
-                    <button
-                        onClick={handleSubmit}
-                        className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition"
+                <div className="flex gap-4">
+                    <select 
+                        value={selectedTerm} 
+                        onChange={handleTermChange} 
+                        className="px-4 py-2 border rounded-lg min-w-[200px]"
                     >
-                        {isEditing ? 'Update Entry' : 'Add Entry'}
-                    </button>
-
-                    {isEditing && (
+                        <option value="">Select Term</option>
+                        {terms.map(t => (
+                            <option key={t.id} value={t.id}>
+                                {t.course_name} - Semester {t.term_number}
+                            </option>
+                        ))}
+                    </select>
+                    {selectedTerm && (
                         <button
-                            onClick={resetForm}
-                            className="bg-gray-500 text-white px-6 py-2 rounded hover:bg-gray-600 transition"
+                            onClick={() => setShowModal(true)}
+                            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                         >
-                            Cancel
+                            <Plus className="w-5 h-5" /> Add Slot
                         </button>
                     )}
                 </div>
             </div>
 
-            {/* Timetable Display */}
-            {selectedSection && (
-                <div className="bg-white rounded-lg shadow overflow-hidden">
-                    <div className="p-4 border-b bg-gray-50">
-                        <h2 className="text-xl font-semibold flex items-center gap-2">
-                            <BookOpen className="w-5 h-5" />
-                            Timetable for {sections.find(s => s.section_id === selectedSection)?.name || 'Selected section'}
-                        </h2>
+            {selectedTerm ? (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="grid grid-cols-7 border-b">
+                        {DAYS.map(day => (
+                            <div key={day} className="px-4 py-3 text-center font-semibold text-gray-700 bg-gray-50 border-r last:border-r-0">
+                                {day}
+                            </div>
+                        ))}
                     </div>
-
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead className="bg-gray-100">
-                                <tr>
-                                    <th className="p-3 text-left">Day</th>
-                                    <th className="p-3 text-left">Time</th>
-                                    <th className="p-3 text-left">Subject</th>
-                                    <th className="p-3 text-left">Teacher</th>
-                                    <th className="p-3 text-left">Room</th>
-                                    <th className="p-3 text-center">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {timetable.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={6} className="p-8 text-center text-gray-500">
-                                            No entries yet for this section
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    timetable.map(entry => (
-                                        <tr key={entry.timetable_id} className="border-t hover:bg-gray-50">
-                                            <td className="p-3">{entry.day}</td>
-                                            <td className="p-3">
-                                                {entry.start_time?.slice(0, 5)} – {entry.end_time?.slice(0, 5)}
-                                            </td>
-                                            <td className="p-3">{entry.subject}</td>
-                                            <td className="p-3">{entry.teacher}</td>
-                                            <td className="p-3 font-medium">{entry.room_no}</td>
-                                            <td className="p-3 text-center flex justify-center gap-3">
-                                                <button
-                                                    onClick={() => handleEdit(entry)}
-                                                    className="text-green-600 hover:text-green-800"
-                                                    title="Edit"
-                                                >
-                                                    <Pencil size={18} />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(entry.timetable_id)}
-                                                    className="text-red-600 hover:text-red-800"
-                                                    title="Delete"
-                                                >
-                                                    <Trash2 size={18} />
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
+                    <div className="grid grid-cols-7 min-h-[400px]">
+                        {DAYS.map(day => (
+                            <div key={day} className="border-r last:border-r-0 p-2 space-y-2">
+                                {getSlotsByDay(day).map(slot => (
+                                    <div key={slot.id} className="bg-blue-50 border border-blue-200 rounded-lg p-2 text-sm">
+                                        <div className="font-medium text-blue-900">{slot.subject_name}</div>
+                                        <div className="text-blue-700">{slot.start_time?.slice(0,5)} - {slot.end_time?.slice(0,5)}</div>
+                                        <div className="text-blue-600">{slot.faculty_name}</div>
+                                        <div className="text-blue-500">{slot.room_name}</div>
+                                        <button onClick={() => handleDelete(slot.id)} className="mt-1 text-red-600 hover:bg-red-100 p-1 rounded">
+                                            <Trash2 className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
                     </div>
+                </div>
+            ) : (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-500">
+                    Select a term above to view its timetable
                 </div>
             )}
 
-            {!selectedSection && (
-                <div className="text-center py-12 text-gray-500">
-                    Select a section above to view and manage its timetable
+            {showModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-lg font-semibold">Add Timetable Slot</h2>
+                            <button onClick={() => setShowModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+                                <select 
+                                    value={form.subject_id} 
+                                    onChange={handleSubjectChange} 
+                                    className="w-full px-4 py-2 border rounded-lg" 
+                                    required
+                                >
+                                    <option value="">Select Subject</option>
+                                    {subjects.filter(s => s.academic_term_id === parseInt(selectedTerm)).map(s => (
+                                        <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Faculty {selectedSubjectDepartmentId && <span className="text-xs text-gray-500">(filtered by department)</span>}
+                                </label>
+                                <select 
+                                    value={form.faculty_id} 
+                                    onChange={(e) => setForm({ ...form, faculty_id: e.target.value })} 
+                                    className="w-full px-4 py-2 border rounded-lg" 
+                                    required
+                                    disabled={!selectedSubjectDepartmentId}
+                                >
+                                    <option value="">{!selectedSubjectDepartmentId ? 'Select a subject first' : 'Select Faculty'}</option>
+                                    {filteredFaculties.map(f => (
+                                        <option key={f.id} value={f.id}>{f.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Room {selectedSubjectDepartmentId && <span className="text-xs text-gray-500">(filtered by department)</span>}
+                                </label>
+                                <select 
+                                    value={form.room_id} 
+                                    onChange={(e) => setForm({ ...form, room_id: e.target.value })} 
+                                    className="w-full px-4 py-2 border rounded-lg" 
+                                    required
+                                    disabled={!selectedSubjectDepartmentId}
+                                >
+                                    <option value="">{!selectedSubjectDepartmentId ? 'Select a subject first' : 'Select Room'}</option>
+                                    {filteredRooms.map(r => (
+                                        <option key={r.id} value={r.id}>{r.name} (Capacity: {r.capacity})</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Day</label>
+                                <select 
+                                    value={form.day_of_week} 
+                                    onChange={(e) => setForm({ ...form, day_of_week: e.target.value })} 
+                                    className="w-full px-4 py-2 border rounded-lg"
+                                >
+                                    {DAYS.map(d => (
+                                        <option key={d} value={d}>{d}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+                                    <input 
+                                        type="time" 
+                                        value={form.start_time} 
+                                        onChange={(e) => setForm({ ...form, start_time: e.target.value })} 
+                                        className="w-full px-4 py-2 border rounded-lg" 
+                                        required 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                                    <input 
+                                        type="time" 
+                                        value={form.end_time} 
+                                        onChange={(e) => setForm({ ...form, end_time: e.target.value })} 
+                                        className="w-full px-4 py-2 border rounded-lg" 
+                                        required 
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded-lg">Cancel</button>
+                                <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                                    {saving ? 'Creating...' : 'Create Slot'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             )}
         </div>
