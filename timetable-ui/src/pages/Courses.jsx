@@ -9,7 +9,13 @@ export default function Courses() {
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [editingId, setEditingId] = useState(null);
-    const [form, setForm] = useState({ name: '', code: '', duration_years: 4, department_id: '' });
+    const [form, setForm] = useState({ 
+        name: '', 
+        code: '', 
+        duration_years: 4, 
+        department_id: '',
+        term_type: 'SEMESTER'
+    });
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -40,8 +46,9 @@ export default function Courses() {
                 code: form.code || undefined,
                 department_id: parseInt(form.department_id), 
                 duration_years: parseInt(form.duration_years),
-                term_type: 'SEMESTER'
+                term_type: form.term_type   // ✅ FIXED
             };
+
             if (editingId) {
                 await updateCourse(editingId, data);
                 toast.success('Course updated');
@@ -49,18 +56,25 @@ export default function Courses() {
                 await createCourse(data);
                 toast.success('Course created');
             }
+
             setShowModal(false);
             resetForm();
             loadData();
         } catch (err) {
-            // Error handled by interceptor
+            console.error(err);
         } finally {
             setSaving(false);
         }
     };
 
     const resetForm = () => {
-        setForm({ name: '', code: '', duration_years: 4, department_id: '' });
+        setForm({ 
+            name: '', 
+            code: '', 
+            duration_years: 4, 
+            department_id: '',
+            term_type: 'SEMESTER'   // ✅ FIXED
+        });
         setEditingId(null);
     };
 
@@ -69,7 +83,7 @@ export default function Courses() {
             name: course.name,
             code: course.code,
             duration_years: course.duration_years,
-            term_type: course.term_type,
+            term_type: course.term_type || 'SEMESTER',
             department_id: course.department_id
         });
         setEditingId(course.id);
@@ -83,7 +97,7 @@ export default function Courses() {
             toast.success('Course deleted');
             loadData();
         } catch (err) {
-            // Error handled by interceptor
+            console.error(err);
         }
     };
 
@@ -116,10 +130,16 @@ export default function Courses() {
                                 <p className="text-sm text-gray-500">Code: {course.code}</p>
                             </div>
                         </div>
+
                         <div className="space-y-1 text-sm text-gray-600 mb-4">
                             <p>Duration: {course.duration_years} years</p>
-                            <p>Semesters: {course.duration_years * 2}</p>
+                            <p>
+                                {course.term_type === 'SEMESTER'
+                                    ? `Semesters: ${course.duration_years * 2}`
+                                    : `Years: ${course.duration_years}`}
+                            </p>
                         </div>
+
                         <div className="flex justify-end gap-2">
                             <button onClick={() => handleEdit(course)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg">
                                 <Pencil className="w-4 h-4" />
@@ -130,9 +150,6 @@ export default function Courses() {
                         </div>
                     </div>
                 ))}
-                {courses.length === 0 && (
-                    <div className="col-span-full text-center py-12 text-gray-500">No courses found</div>
-                )}
             </div>
 
             {showModal && (
@@ -144,38 +161,62 @@ export default function Courses() {
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
+
                         <form onSubmit={handleSubmit} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                                <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-4 py-2 border rounded-lg" required />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Code</label>
-                                <input type="text" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className="w-full px-4 py-2 border rounded-lg" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
-                                <select value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })} className="w-full px-4 py-2 border rounded-lg" required>
-                                    <option value="">Select Department</option>
-                                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Duration (Years)</label>
-                                <select 
-                                    value={form.duration_years} 
-                                    onChange={(e) => setForm({ ...form, duration_years: e.target.value })} 
-                                    className="w-full px-4 py-2 border rounded-lg" 
-                                    required
-                                >
-                                    {[1, 2, 3, 4, 5, 6].map(y => (
-                                        <option key={y} value={y}>{y} Years ({y * 2} Semesters)</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="flex justify-end gap-2 pt-2">
-                                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded-lg">Cancel</button>
-                                <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                            <input type="text" placeholder="Name"
+                                value={form.name}
+                                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                                className="w-full px-4 py-2 border rounded-lg" required />
+
+                            <input type="text" placeholder="Code"
+                                value={form.code}
+                                onChange={(e) => setForm({ ...form, code: e.target.value })}
+                                className="w-full px-4 py-2 border rounded-lg" />
+
+                            <select
+                                value={form.department_id}
+                                onChange={(e) => setForm({ ...form, department_id: e.target.value })}
+                                className="w-full px-4 py-2 border rounded-lg"
+                                required
+                            >
+                                <option value="">Select Department</option>
+                                {departments.map(d => (
+                                    <option key={d.id} value={d.id}>{d.name}</option>
+                                ))}
+                            </select>
+
+                            {/* ✅ NEW TERM TYPE DROPDOWN */}
+                            <select
+                                value={form.term_type}
+                                onChange={(e) => setForm({ ...form, term_type: e.target.value })}
+                                className="w-full px-4 py-2 border rounded-lg"
+                            >
+                                <option value="SEMESTER">Semester</option>
+                                <option value="YEAR">Year</option>
+                            </select>
+
+                            <select
+                                value={form.duration_years}
+                                onChange={(e) => setForm({ ...form, duration_years: e.target.value })}
+                                className="w-full px-4 py-2 border rounded-lg"
+                                required
+                            >
+                                {[1,2,3,4,5,6].map(y => (
+                                    <option key={y} value={y}>
+                                        {y} Years (
+                                        {form.term_type === 'SEMESTER'
+                                            ? `${y * 2} Semesters`
+                                            : `${y} Years`}
+                                        )
+                                    </option>
+                                ))}
+                            </select>
+
+                            <div className="flex justify-end gap-2">
+                                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded-lg">
+                                    Cancel
+                                </button>
+                                <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg">
                                     {saving ? 'Saving...' : 'Save'}
                                 </button>
                             </div>
