@@ -23,10 +23,20 @@ export default function Login() {
             });
 
             localStorage.setItem("token", res.data.access_token);
-            navigate("/timetable");
+            
+            const token = res.data.access_token;
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            const role = payload.role;
+            localStorage.setItem("role", role);
+            
+            if (role === "super_admin") {
+                navigate("/super-admin");
+            } else {
+                navigate("/timetable");
+            }
         } catch (err) {
             setError(
-                err.response?.data?.message || "Invalid username or password"
+                err.response?.data?.detail || "Invalid username or password"
             );
         } finally {
             setLoading(false);

@@ -13,34 +13,31 @@ from db import SessionLocal
 from models import User
 
 
-SECRET_KEY = "secretkey"
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-super-secret-key-change-in-production")
 
 ALGORITHM: str = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES: int = 30          
+ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
 pwd_context = CryptContext(
     schemes=["argon2", "bcrypt"],
     deprecated="auto"
 )
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
+
 
 def hash_password(password: str):
     return pwd_context.hash(password)
 
+
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
+
 
 def create_access_token(
     data: dict[str, Any],
     expires_delta: Optional[timedelta] = None,
 ) -> str:
-    """
-    Create a JWT access token with expiration.
-    
-    Usage example:
-        token = create_access_token({"sub": user.username, "scopes": ["read:items"]})
-    """
     to_encode = data.copy()
 
     if expires_delta:
@@ -50,7 +47,7 @@ def create_access_token(
 
     to_encode.update({
         "exp": expire,
-        "iat": datetime.now(timezone.utc),     
+        "iat": datetime.now(timezone.utc),
     })
 
     encoded_jwt = jwt.encode(
@@ -61,6 +58,7 @@ def create_access_token(
 
     return encoded_jwt
 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -68,14 +66,16 @@ def get_db():
     finally:
         db.close()
 
+
 def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
+    if token is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-
         user_id = payload.get("user_id")
 
         if user_id is None:
@@ -84,14 +84,33 @@ def get_current_user(
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    user = db.query(User).filter(User.user_id == user_id).first()
+    user = db.query(User).filter(User.id == user_id).first()
 
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User is deactivated")
 
     return user
 
+
 def get_current_admin(user: User = Depends(get_current_user)):
-    if user.role not in ["admin", "superadmin"]:
-        raise HTTPException(status_code=403, detail="Not allowed")
+    role_value = user.role.value if hasattr(user.role, 'value') else user.role
+    if role_value not in ["admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+def get_current_faculty(user: User = Depends(get_current_user)):
+    role_value = user.role.value if hasattr(user.role, 'value') else user.role
+    if role_value not in ["faculty", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Faculty access required")
+    return user
+
+
+def get_current_super_admin(user: User = Depends(get_current_user)):
+    role_value = user.role.value if hasattr(user.role, 'value') else user.role
+    if role_value != "super_admin":
+        raise HTTPException(status_code=403, detail="Super Admin access required")
     return user
