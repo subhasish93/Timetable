@@ -403,21 +403,43 @@ def super_admin_get_stats(db: Session = Depends(get_db), current_user: User = De
 # =========================
 # DEPARTMENT
 # =========================
+
 @app.post("/departments", response_model=DepartmentResponse, status_code=201)
-def create_department(data: DepartmentCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
-    dept = Department(name=data.name, organisation_id=current_user.organisation_id)
+def create_department(
+    data: DepartmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    dept = Department(
+        name=data.name,
+        short_name=data.short_name,
+        organisation_id=current_user.organisation_id
+    )
+
     db.add(dept)
     try:
         db.commit()
         db.refresh(dept)
         return dept
-    except IntegrityError:
+
+    except IntegrityError as e:
         db.rollback()
-        raise HTTPException(400, "Department already exists in this organisation")
+
+        error_msg = str(e.orig).lower()
+
+        if "short_name" in error_msg:
+            raise HTTPException(400, "Short name already exists in this organisation")
+        elif "name" in error_msg:
+            raise HTTPException(400, "Department name already exists in this organisation")
+        else:
+            raise HTTPException(400, "Duplicate department entry")
 
 
 @app.get("/departments", response_model=list[DepartmentResponse])
-def list_departments(db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def list_departments(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     return db.query(Department).filter(
         Department.organisation_id == current_user.organisation_id,
         Department.is_active == True
@@ -425,43 +447,75 @@ def list_departments(db: Session = Depends(get_db), current_user: User = Depends
 
 
 @app.get("/departments/{dept_id}", response_model=DepartmentResponse)
-def get_department(dept_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def get_department(
+    dept_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     dept = db.query(Department).filter(
         Department.id == dept_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not dept:
         raise HTTPException(404, "Department not found")
+
     return dept
 
 
 @app.put("/departments/{dept_id}", response_model=DepartmentResponse)
-def update_department(dept_id: int, data: DepartmentUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def update_department(
+    dept_id: int,
+    data: DepartmentUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     dept = db.query(Department).filter(
         Department.id == dept_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not dept:
         raise HTTPException(404, "Department not found")
-    
+
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(dept, key, value)
-    
-    db.commit()
-    db.refresh(dept)
-    return dept
+
+    try:
+        db.commit()
+        db.refresh(dept)
+        return dept
+
+    except IntegrityError as e:
+        db.rollback()
+
+        error_msg = str(e.orig).lower()
+
+        if "short_name" in error_msg:
+            raise HTTPException(400, "Short name already exists")
+        elif "name" in error_msg:
+            raise HTTPException(400, "Department name already exists")
+        else:
+            raise HTTPException(400, "Duplicate department entry")
 
 
 @app.delete("/departments/{dept_id}")
-def delete_department(dept_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def delete_department(
+    dept_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     dept = db.query(Department).filter(
         Department.id == dept_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not dept:
         raise HTTPException(404, "Department not found")
+
     dept.is_active = False
     db.commit()
+
     return {"message": "Department deactivated"}
 
 
@@ -665,99 +719,153 @@ def delete_term(term_id: int, db: Session = Depends(get_db), current_user: User 
 # =========================
 # SUBJECTS
 # =========================
+
 @app.post("/terms/{term_id}/subjects", response_model=SubjectResponse, status_code=201)
-def create_subject(term_id: int, data: SubjectCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def create_subject(
+    term_id: int,
+    data: SubjectCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     term = db.query(AcademicTerm).join(Course).join(Department).filter(
         AcademicTerm.id == term_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not term:
         raise HTTPException(404, "Term not found")
-    
+
+    # Prevent duplicate subject code in same term
     existing = db.query(Subject).filter(
         Subject.academic_term_id == term_id,
         Subject.code == data.code
     ).first()
+
     if existing:
         raise HTTPException(400, "Subject code already exists in this term")
-    
+
+    # ✅ MAIN FIX: include subject_short_name
     subject = Subject(
         academic_term_id=term_id,
         name=data.name,
         code=data.code,
+        subject_short_name=data.subject_short_name or data.code,  # ✅ fallback safety
         subject_type=SubjectType(data.subject_type) if isinstance(data.subject_type, str) else data.subject_type,
         credits=data.credits,
         weekly_hours=data.weekly_hours
     )
+
     db.add(subject)
     db.commit()
     db.refresh(subject)
+
     return subject
 
 
 @app.get("/terms/{term_id}/subjects", response_model=list[SubjectResponse])
-def list_subjects(term_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def list_subjects(
+    term_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     term = db.query(AcademicTerm).join(Course).join(Department).filter(
         AcademicTerm.id == term_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not term:
         raise HTTPException(404, "Term not found")
-    
-    return db.query(Subject).filter(
+
+    subjects = db.query(Subject).filter(
         Subject.academic_term_id == term_id,
         Subject.is_active == True
     ).all()
 
+    # ✅ Safety fix for old NULL data (prevents crash)
+    for s in subjects:
+        if not s.subject_short_name:
+            s.subject_short_name = s.code
+
+    return subjects
+
 
 @app.get("/subjects/{subject_id}", response_model=SubjectResponse)
-def get_subject(subject_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def get_subject(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     subject = db.query(Subject).join(AcademicTerm).join(Course).join(Department).filter(
         Subject.id == subject_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not subject:
         raise HTTPException(404, "Subject not found")
+
+    # ✅ Safety fallback
+    if not subject.subject_short_name:
+        subject.subject_short_name = subject.code
+
     return subject
 
 
 @app.put("/subjects/{subject_id}", response_model=SubjectResponse)
-def update_subject(subject_id: int, data: SubjectUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def update_subject(
+    subject_id: int,
+    data: SubjectUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     subject = db.query(Subject).join(AcademicTerm).join(Course).join(Department).filter(
         Subject.id == subject_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not subject:
         raise HTTPException(404, "Subject not found")
-    
+
     for key, value in data.model_dump(exclude_unset=True).items():
         if key == "subject_type" and value:
             value = SubjectType(value)
+
+        # ✅ Ensure short name never becomes NULL
+        if key == "subject_short_name":
+            value = value or subject.code
+
         setattr(subject, key, value)
-    
+
     db.commit()
     db.refresh(subject)
+
     return subject
 
 
 @app.delete("/subjects/{subject_id}")
-def delete_subject(subject_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def delete_subject(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     subject = db.query(Subject).join(AcademicTerm).join(Course).join(Department).filter(
         Subject.id == subject_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not subject:
         raise HTTPException(404, "Subject not found")
-    
+
     has_timetable = db.query(TimetableSlot).filter(
         TimetableSlot.subject_id == subject_id,
         TimetableSlot.is_active == True
     ).first()
+
     if has_timetable:
         raise HTTPException(400, "Cannot delete subject used in timetable")
-    
+
     subject.is_active = False
     db.commit()
+
     return {"message": "Subject deactivated"}
 
 

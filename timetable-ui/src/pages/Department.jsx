@@ -8,7 +8,7 @@ export default function Department() {
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [editingId, setEditingId] = useState(null);
-    const [form, setForm] = useState({ name: '' });
+    const [form, setForm] = useState({ name: '', short_name: '' });
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -38,18 +38,21 @@ export default function Department() {
                 toast.success('Department created');
             }
             setShowModal(false);
-            setForm({ name: '' });
+            setForm({ name: '', short_name: '' }); // FIXED
             setEditingId(null);
             loadDepartments();
         } catch (err) {
-            // Error handled by interceptor
+            console.error(err);
         } finally {
             setSaving(false);
         }
     };
 
     const handleEdit = (dept) => {
-        setForm({ name: dept.name });
+        setForm({
+            name: dept.name || '',
+            short_name: dept.short_name || '' // FIXED
+        });
         setEditingId(dept.id);
         setShowModal(true);
     };
@@ -61,7 +64,7 @@ export default function Department() {
             toast.success('Department deleted');
             loadDepartments();
         } catch (err) {
-            // Error handled by interceptor
+            console.error(err);
         }
     };
 
@@ -78,7 +81,11 @@ export default function Department() {
             <div className="flex items-center justify-between mb-6">
                 <h1 className="text-2xl font-bold text-gray-900">Departments</h1>
                 <button
-                    onClick={() => { setForm({ name: '' }); setEditingId(null); setShowModal(true); }}
+                    onClick={() => {
+                        setForm({ name: '', short_name: '' }); // FIXED
+                        setEditingId(null);
+                        setShowModal(true);
+                    }}
                     className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                 >
                     <Plus className="w-5 h-5" /> Add Department
@@ -90,6 +97,7 @@ export default function Department() {
                     <thead className="bg-gray-50">
                         <tr>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Short Name</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                             <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                         </tr>
@@ -98,6 +106,7 @@ export default function Department() {
                         {departments.map((dept) => (
                             <tr key={dept.id} className="hover:bg-gray-50">
                                 <td className="px-6 py-4 text-gray-900">{dept.name}</td>
+                                <td className="px-6 py-4 text-gray-700">{dept.short_name}</td>
                                 <td className="px-6 py-4">
                                     <span className={`px-2 py-1 text-xs rounded-full ${dept.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                         {dept.is_active ? 'Active' : 'Inactive'}
@@ -115,7 +124,7 @@ export default function Department() {
                         ))}
                         {departments.length === 0 && (
                             <tr>
-                                <td colSpan="3" className="px-6 py-8 text-center text-gray-500">No departments found</td>
+                                <td colSpan="4" className="px-6 py-8 text-center text-gray-500">No departments found</td>
                             </tr>
                         )}
                     </tbody>
@@ -131,18 +140,37 @@ export default function Department() {
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
+
                         <form onSubmit={handleSubmit}>
+                            {/* Department Name */}
                             <input
                                 type="text"
                                 placeholder="Department Name"
                                 value={form.name}
-                                onChange={(e) => setForm({ name: e.target.value })}
+                                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                                className="w-full px-4 py-2 border rounded-lg mb-3"
+                                required
+                            />
+
+                            {/* Short Name (NEW FIELD) */}
+                            <input
+                                type="text"
+                                placeholder="Short Name (e.g. CSE)"
+                                value={form.short_name}
+                                onChange={(e) => setForm({ ...form, short_name: e.target.value })}
                                 className="w-full px-4 py-2 border rounded-lg mb-4"
                                 required
                             />
+
                             <div className="flex justify-end gap-2">
-                                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded-lg">Cancel</button>
-                                <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded-lg">
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={saving}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                                >
                                     {saving ? 'Saving...' : 'Save'}
                                 </button>
                             </div>

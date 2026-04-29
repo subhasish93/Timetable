@@ -114,6 +114,7 @@ class Department(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    short_name = Column(String(50), nullable=False)  # for short Name
     organisation_id = Column(Integer, ForeignKey("organisations.id", ondelete="CASCADE"), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(Date, server_default=func.now())
@@ -126,6 +127,8 @@ class Department(Base):
 
     __table_args__ = (
         UniqueConstraint("name", "organisation_id", name="unique_department_per_org"),
+        UniqueConstraint("short_name", "organisation_id", name="unique_shortname_per_org"),  # ✅ ADD THIS
+
     )
 
 
@@ -200,6 +203,7 @@ class Subject(Base):
     academic_term_id = Column(Integer, ForeignKey("academic_terms.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     code = Column(String, nullable=False)
+    subject_short_name = Column(String, nullable=False)
     subject_type = Column(Enum(SubjectType), default=SubjectType.MANDATORY, nullable=False)
     credits = Column(Integer, default=0)
     weekly_hours = Column(Integer, default=0)

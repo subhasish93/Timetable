@@ -40,8 +40,10 @@ class OrganisationResponse(OrganisationBase):
 # =========================
 # DEPARTMENT
 # =========================
+
 class DepartmentBase(BaseModel):
     name: str
+    short_name: str   # ✅ ADDED
 
 
 class DepartmentCreate(DepartmentBase):
@@ -50,11 +52,12 @@ class DepartmentCreate(DepartmentBase):
 
 class DepartmentUpdate(BaseModel):
     name: Optional[str] = None
+    short_name: Optional[str] = None   # ✅ ADDED
 
 
 class DepartmentResponse(DepartmentBase):
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: int
     organisation_id: int
     is_active: bool
@@ -149,6 +152,7 @@ class AcademicTermResponse(AcademicTermBase):
 class SubjectBase(BaseModel):
     name: str
     code: str
+    subject_short_name: str
     subject_type: SubjectType = "MANDATORY"  # type: ignore
     credits: int = 0
     weekly_hours: int = 0
@@ -161,6 +165,7 @@ class SubjectCreate(SubjectBase):
 class SubjectUpdate(BaseModel):
     name: Optional[str] = None
     code: Optional[str] = None
+    subject_short_name: Optional[str] = None 
     subject_type: Optional[SubjectType] = None
     credits: Optional[int] = None
     weekly_hours: Optional[int] = None
