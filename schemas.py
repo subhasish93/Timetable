@@ -117,8 +117,8 @@ class AcademicTermBase(BaseModel):
 
 
 class AcademicTermCreate(AcademicTermBase):
-    course_id: int
-    academic_year_id: int   # ✅ NEW (MANDATORY)
+    pass
+    #academic_year_id: Optional[int] = None   # ✅ NEW (MANDATORY)
 
 
 class AcademicTermUpdate(BaseModel):
@@ -142,7 +142,7 @@ class AcademicTermResponse(AcademicTermBase):
     
     id: int
     course_id: int
-    academic_year_id: int   # ✅ NEW
+    #academic_year_id: int   # ✅ NEW
     is_active: bool
 
 

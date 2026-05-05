@@ -52,58 +52,58 @@ class Organisation(Base):
     users = relationship("User", back_populates="organisation", cascade="all, delete")
 
     # ✅ NEW
-    academic_years = relationship("AcademicYear", back_populates="organisation", cascade="all, delete")
+    # academic_years = relationship("AcademicYear", back_populates="organisation", cascade="all, delete")
 
 
-# =========================
-# ACADEMIC YEAR
-# =========================
-class AcademicYear(Base):
-    __tablename__ = "academic_years"
+# # =========================
+# # ACADEMIC YEAR
+# # =========================
+# class AcademicYear(Base):
+#     __tablename__ = "academic_years"
 
-    id = Column(Integer, primary_key=True, index=True)
+#     id = Column(Integer, primary_key=True, index=True)
 
-    name = Column(String, nullable=False)  # e.g. "2025-2026"
-    start_date = Column(Date, nullable=False)
-    end_date = Column(Date, nullable=False)
+#     name = Column(String, nullable=False)  # e.g. "2025-2026"
+#     start_date = Column(Date, nullable=False)
+#     end_date = Column(Date, nullable=False)
 
-    organisation_id = Column(
-        Integer,
-        ForeignKey("organisations.id", ondelete="CASCADE"),
-        nullable=False
-    )
+#     organisation_id = Column(
+#         Integer,
+#         ForeignKey("organisations.id", ondelete="CASCADE"),
+#         nullable=False
+#     )
 
-    is_active = Column(Boolean, default=True)
+#     is_active = Column(Boolean, default=True)
 
-    created_at = Column(Date, server_default=func.now())
-    updated_at = Column(Date, server_default=func.now(), onupdate=func.now())
+#     created_at = Column(Date, server_default=func.now())
+#     updated_at = Column(Date, server_default=func.now(), onupdate=func.now())
 
-    # ✅ RELATIONSHIPS
-    organisation = relationship("Organisation", back_populates="academic_years")
-    academic_terms = relationship(
-        "AcademicTerm",
-        back_populates="academic_year",
-        cascade="all, delete"
-    )
+#     # ✅ RELATIONSHIPS
+#     organisation = relationship("Organisation", back_populates="academic_years")
+#     academic_terms = relationship(
+#         "AcademicTerm",
+#         back_populates="academic_year",
+#         cascade="all, delete"
+#     )
 
-    __table_args__ = (
-        # ✅ Unique per organisation
-        UniqueConstraint(
-            "name",
-            "organisation_id",
-            name="unique_academic_year_per_org"
-        ),
+#     __table_args__ = (
+#         # ✅ Unique per organisation
+#         UniqueConstraint(
+#             "name",
+#             "organisation_id",
+#             name="unique_academic_year_per_org"
+#         ),
 
-        # ✅ Date validation
-        CheckConstraint(
-            "end_date > start_date",
-            name="check_academic_year_dates"
-        ),
+#         # ✅ Date validation
+#         CheckConstraint(
+#             "end_date > start_date",
+#             name="check_academic_year_dates"
+#         ),
 
-        # ✅ Indexes (IMPORTANT)
-        Index("idx_academic_year_org", "organisation_id"),
-        Index("idx_academic_year_active", "is_active"),
-    )
+#         # ✅ Indexes (IMPORTANT)
+#         Index("idx_academic_year_org", "organisation_id"),
+#         Index("idx_academic_year_active", "is_active"),
+#     )
 
 
 # =========================
@@ -165,7 +165,7 @@ class AcademicTerm(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     # ✅ NEW
-    academic_year_id = Column(Integer, ForeignKey("academic_years.id", ondelete="CASCADE"), nullable=False)
+    # academic_year_id = Column(Integer, ForeignKey("academic_years.id", ondelete="CASCADE"), nullable=False)
 
     course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
     term_number = Column(Integer, nullable=False)
@@ -178,7 +178,7 @@ class AcademicTerm(Base):
     updated_at = Column(Date, server_default=func.now(), onupdate=func.now())
 
     # ✅ RELATIONS
-    academic_year = relationship("AcademicYear", back_populates="academic_terms")
+    # academic_year = relationship("AcademicYear", back_populates="academic_terms")
     course = relationship("Course", back_populates="academic_terms")
     subjects = relationship("Subject", back_populates="academic_term", cascade="all, delete")
     sections = relationship("Section", back_populates="academic_term", cascade="all, delete")
@@ -187,7 +187,8 @@ class AcademicTerm(Base):
 
     __table_args__ = (
         # ✅ FIXED
-        UniqueConstraint("academic_year_id", "course_id", "term_number", name="unique_term_per_year_course"),
+        # UniqueConstraint("academic_year_id", "course_id", "term_number", name="unique_term_per_year_course"),
+        UniqueConstraint("course_id", "term_number", name="unique_term_per_course"),
         CheckConstraint("end_date > start_date", name="check_term_dates"),
         CheckConstraint("term_number > 0", name="check_term_number"),
     )
