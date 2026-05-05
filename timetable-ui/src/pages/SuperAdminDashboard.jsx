@@ -156,7 +156,10 @@ export default function SuperAdminDashboard() {
                         organisations.map(org => {
                             const orgStats = stats?.organisations?.find(o => o.organisation_id === org.id);
                             return (
-                                <div key={org.id} className="p-6 hover:bg-gray-50 transition">
+                                <div key={org.id} 
+                                    onClick={() => navigate(`/super-admin/organisations/${org.id}`)}
+                                    className="p-6 hover:bg-gray-50 transition cursor-pointer"
+                                >
                                     <div className="flex items-center justify-between">
                                         <div>
                                             <h3 className="font-semibold text-gray-900">{org.name}</h3>

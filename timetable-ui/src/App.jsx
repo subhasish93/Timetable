@@ -13,6 +13,7 @@ import Faculty from './pages/Faculties';
 import Rooms from './pages/Rooms';
 import TimetableManager from './pages/TimetableManager';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
+import OrganisationDetail from './pages/OrganisationDetail';
 import ChangePassword from './pages/ChangePassword';
 
 function App() {
@@ -21,10 +22,16 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        
+
         <Route path="/super-admin" element={
           <ProtectedRoute allowedRoles={['super_admin']}>
             <SuperAdminDashboard />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/super-admin/organisations/:id" element={
+          <ProtectedRoute allowedRoles={['super_admin']}>
+            <OrganisationDetail />
           </ProtectedRoute>
         } />
 
@@ -35,7 +42,7 @@ function App() {
         } />
 
         <Route element={
-          <ProtectedRoute>
+          <ProtectedRoute allowedRoles={['admin']}>
             <AdminLayout />
           </ProtectedRoute>
         }>
