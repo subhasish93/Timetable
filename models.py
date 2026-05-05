@@ -51,6 +51,60 @@ class Organisation(Base):
     departments = relationship("Department", back_populates="organisation", cascade="all, delete")
     users = relationship("User", back_populates="organisation", cascade="all, delete")
 
+    # ✅ NEW
+    academic_years = relationship("AcademicYear", back_populates="organisation", cascade="all, delete")
+
+
+# =========================
+# ACADEMIC YEAR
+# =========================
+class AcademicYear(Base):
+    __tablename__ = "academic_years"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    name = Column(String, nullable=False)  # e.g. "2025-2026"
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+
+    organisation_id = Column(
+        Integer,
+        ForeignKey("organisations.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    is_active = Column(Boolean, default=True)
+
+    created_at = Column(Date, server_default=func.now())
+    updated_at = Column(Date, server_default=func.now(), onupdate=func.now())
+
+    # ✅ RELATIONSHIPS
+    organisation = relationship("Organisation", back_populates="academic_years")
+    academic_terms = relationship(
+        "AcademicTerm",
+        back_populates="academic_year",
+        cascade="all, delete"
+    )
+
+    __table_args__ = (
+        # ✅ Unique per organisation
+        UniqueConstraint(
+            "name",
+            "organisation_id",
+            name="unique_academic_year_per_org"
+        ),
+
+        # ✅ Date validation
+        CheckConstraint(
+            "end_date > start_date",
+            name="check_academic_year_dates"
+        ),
+
+        # ✅ Indexes (IMPORTANT)
+        Index("idx_academic_year_org", "organisation_id"),
+        Index("idx_academic_year_active", "is_active"),
+    )
+
 
 # =========================
 # DEPARTMENT
@@ -60,6 +114,7 @@ class Department(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    short_name = Column(String(50), nullable=False)  # for short Name
     organisation_id = Column(Integer, ForeignKey("organisations.id", ondelete="CASCADE"), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(Date, server_default=func.now())
@@ -72,6 +127,8 @@ class Department(Base):
 
     __table_args__ = (
         UniqueConstraint("name", "organisation_id", name="unique_department_per_org"),
+        UniqueConstraint("short_name", "organisation_id", name="unique_shortname_per_org"),  # ✅ ADD THIS
+
     )
 
 
@@ -106,15 +163,22 @@ class AcademicTerm(Base):
     __tablename__ = "academic_terms"
 
     id = Column(Integer, primary_key=True, index=True)
+
+    # ✅ NEW
+    academic_year_id = Column(Integer, ForeignKey("academic_years.id", ondelete="CASCADE"), nullable=False)
+
     course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
     term_number = Column(Integer, nullable=False)
     term_type = Column(Enum(TermType), nullable=False)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
+
     is_active = Column(Boolean, default=True)
     created_at = Column(Date, server_default=func.now())
     updated_at = Column(Date, server_default=func.now(), onupdate=func.now())
 
+    # ✅ RELATIONS
+    academic_year = relationship("AcademicYear", back_populates="academic_terms")
     course = relationship("Course", back_populates="academic_terms")
     subjects = relationship("Subject", back_populates="academic_term", cascade="all, delete")
     sections = relationship("Section", back_populates="academic_term", cascade="all, delete")
@@ -122,7 +186,8 @@ class AcademicTerm(Base):
     timetable_slots = relationship("TimetableSlot", back_populates="academic_term", cascade="all, delete")
 
     __table_args__ = (
-        UniqueConstraint("course_id", "term_number", name="unique_term_per_course"),
+        # ✅ FIXED
+        UniqueConstraint("academic_year_id", "course_id", "term_number", name="unique_term_per_year_course"),
         CheckConstraint("end_date > start_date", name="check_term_dates"),
         CheckConstraint("term_number > 0", name="check_term_number"),
     )
@@ -138,6 +203,7 @@ class Subject(Base):
     academic_term_id = Column(Integer, ForeignKey("academic_terms.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     code = Column(String, nullable=False)
+    subject_short_name = Column(String, nullable=False)
     subject_type = Column(Enum(SubjectType), default=SubjectType.MANDATORY, nullable=False)
     credits = Column(Integer, default=0)
     weekly_hours = Column(Integer, default=0)
@@ -179,7 +245,7 @@ class Section(Base):
 
 
 # =========================
-# BATCH (Elective Groups)
+# BATCH
 # =========================
 class Batch(Base):
     __tablename__ = "batches"
@@ -311,14 +377,8 @@ class TimetableSlot(Base):
     room = relationship("Room", back_populates="timetable_slots")
 
     __table_args__ = (
-        UniqueConstraint(
-            "academic_term_id", "section_id", "day_of_week", "start_time", "end_time",
-            name="unique_section_slot"
-        ),
-        UniqueConstraint(
-            "academic_term_id", "batch_id", "day_of_week", "start_time", "end_time",
-            name="unique_batch_slot"
-        ),
+        UniqueConstraint("academic_term_id", "section_id", "day_of_week", "start_time", "end_time", name="unique_section_slot"),
+        UniqueConstraint("academic_term_id", "batch_id", "day_of_week", "start_time", "end_time", name="unique_batch_slot"),
         UniqueConstraint("faculty_id", "day_of_week", "start_time", "end_time", name="unique_faculty_slot"),
         UniqueConstraint("room_id", "day_of_week", "start_time", "end_time", name="unique_room_slot"),
         CheckConstraint("end_time > start_time", name="check_slot_times"),

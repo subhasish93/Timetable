@@ -40,8 +40,10 @@ class OrganisationResponse(OrganisationBase):
 # =========================
 # DEPARTMENT
 # =========================
+
 class DepartmentBase(BaseModel):
     name: str
+    short_name: str   # ✅ ADDED
 
 
 class DepartmentCreate(DepartmentBase):
@@ -50,11 +52,12 @@ class DepartmentCreate(DepartmentBase):
 
 class DepartmentUpdate(BaseModel):
     name: Optional[str] = None
+    short_name: Optional[str] = None   # ✅ ADDED
 
 
 class DepartmentResponse(DepartmentBase):
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: int
     organisation_id: int
     is_active: bool
@@ -98,8 +101,6 @@ class AcademicTermBase(BaseModel):
     start_date: date
     end_date: date
 
-
-class AcademicTermCreate(AcademicTermBase):
     @field_validator('term_number')
     @classmethod
     def term_number_positive(cls, v):
@@ -107,10 +108,33 @@ class AcademicTermCreate(AcademicTermBase):
             raise ValueError('term_number must be at least 1')
         return v
 
+    @field_validator('end_date')
+    @classmethod
+    def end_after_start(cls, v, info):
+        if 'start_date' in info.data and v <= info.data['start_date']:
+            raise ValueError('end_date must be after start_date')
+        return v
+
+
+class AcademicTermCreate(AcademicTermBase):
+    course_id: int
+    academic_year_id: int   # ✅ NEW (MANDATORY)
+
 
 class AcademicTermUpdate(BaseModel):
+    term_number: Optional[int] = None
+    term_type: Optional[TermType] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    is_active: Optional[bool] = None
+
+    @field_validator('end_date')
+    @classmethod
+    def end_after_start(cls, v, info):
+        if v and 'start_date' in info.data and info.data['start_date']:
+            if v <= info.data['start_date']:
+                raise ValueError('end_date must be after start_date')
+        return v
 
 
 class AcademicTermResponse(AcademicTermBase):
@@ -118,6 +142,7 @@ class AcademicTermResponse(AcademicTermBase):
     
     id: int
     course_id: int
+    academic_year_id: int   # ✅ NEW
     is_active: bool
 
 
@@ -127,6 +152,7 @@ class AcademicTermResponse(AcademicTermBase):
 class SubjectBase(BaseModel):
     name: str
     code: str
+    subject_short_name: str
     subject_type: SubjectType = "MANDATORY"  # type: ignore
     credits: int = 0
     weekly_hours: int = 0
@@ -139,6 +165,7 @@ class SubjectCreate(SubjectBase):
 class SubjectUpdate(BaseModel):
     name: Optional[str] = None
     code: Optional[str] = None
+    subject_short_name: Optional[str] = None 
     subject_type: Optional[SubjectType] = None
     credits: Optional[int] = None
     weekly_hours: Optional[int] = None

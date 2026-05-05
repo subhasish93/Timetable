@@ -9,7 +9,17 @@ export default function Subjects() {
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [editingId, setEditingId] = useState(null);
-    const [form, setForm] = useState({ academic_term_id: '', name: '', code: '', subject_type: 'MANDATORY', credits: 3, weekly_hours: 4 });
+
+    const [form, setForm] = useState({
+        academic_term_id: '',
+        name: '',
+        subject_short_name: '',
+        code: '',
+        subject_type: 'MANDATORY',
+        credits: 3,
+        weekly_hours: 4
+    });
+
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -18,10 +28,9 @@ export default function Subjects() {
 
     const loadData = async () => {
         try {
-            const [termsRes, coursesRes, subjectsRes] = await Promise.all([
+            const [termsRes, coursesRes] = await Promise.all([
                 getTerms(),
-                getCourses(),
-                Promise.resolve({ data: [] })
+                getCourses()
             ]);
 
             const allSubjects = [];
@@ -29,8 +38,9 @@ export default function Subjects() {
                 try {
                     const subsRes = await getSubjects(term.id);
                     const course = coursesRes.data.find(c => c.id === term.course_id);
-                    allSubjects.push(...subsRes.data.map(s => ({ 
-                        ...s, 
+
+                    allSubjects.push(...subsRes.data.map(s => ({
+                        ...s,
                         term_number: term.term_number,
                         term_id: term.id,
                         course_name: course?.name || 'Unknown',
@@ -38,11 +48,12 @@ export default function Subjects() {
                     })));
                 } catch (e) {}
             }
-            
+
             setTerms(termsRes.data.map(t => {
                 const course = coursesRes.data.find(c => c.id === t.course_id);
                 return { ...t, course_name: course?.name || 'Unknown' };
             }));
+
             setSubjects(allSubjects);
         } catch (err) {
             console.error(err);
@@ -54,8 +65,10 @@ export default function Subjects() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setSaving(true);
+
         try {
             const data = { ...form };
+
             if (editingId) {
                 await updateSubject(editingId, data);
                 toast.success('Subject updated');
@@ -63,18 +76,27 @@ export default function Subjects() {
                 await createSubject(form.academic_term_id, data);
                 toast.success('Subject created');
             }
+
             setShowModal(false);
             resetForm();
             loadData();
         } catch (err) {
-            // Error handled by interceptor
+            // handled globally
         } finally {
             setSaving(false);
         }
     };
 
     const resetForm = () => {
-        setForm({ academic_term_id: '', name: '', code: '', subject_type: 'MANDATORY', credits: 3, weekly_hours: 4 });
+        setForm({
+            academic_term_id: '',
+            name: '',
+            subject_short_name: '',
+            code: '',
+            subject_type: 'MANDATORY',
+            credits: 3,
+            weekly_hours: 4
+        });
         setEditingId(null);
     };
 
@@ -82,24 +104,25 @@ export default function Subjects() {
         setForm({
             academic_term_id: subject.term_id || subject.academic_term_id,
             name: subject.name,
+            subject_short_name: subject.subject_short_name || '',
             code: subject.code,
             subject_type: subject.subject_type,
             credits: subject.credits,
             weekly_hours: subject.weekly_hours
         });
+
         setEditingId(subject.id);
         setShowModal(true);
     };
 
     const handleDelete = async (id) => {
         if (!confirm('Delete this subject?')) return;
+
         try {
             await deleteSubject(id);
             toast.success('Subject deleted');
             loadData();
-        } catch (err) {
-            // Error handled by interceptor
-        }
+        } catch (err) {}
     };
 
     if (loading) {
@@ -127,18 +150,26 @@ export default function Subjects() {
                     <div key={subject.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow">
                         <div className="flex justify-between items-start mb-3">
                             <div>
-                                <h3 className="font-semibold text-gray-900">{subject.name}</h3>
-                                <p className="text-sm text-gray-500">Code: {subject.code}</p>
+                                <h3 className="font-semibold text-gray-900">
+                                    {subject.subject_short_name || subject.name}
+                                </h3>
+                                <p className="text-sm text-gray-500">
+                                    {subject.name} ({subject.code})
+                                </p>
                             </div>
                             <span className={`px-2 py-1 text-xs rounded-full ${subject.subject_type === 'MANDATORY' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
                                 {subject.subject_type}
                             </span>
                         </div>
+
                         <div className="space-y-1 text-sm text-gray-600 mb-2">
-                            <p className="text-xs text-gray-500">{subject.course_name} - Semester {subject.term_number}</p>
+                            <p className="text-xs text-gray-500">
+                                {subject.course_name} - Semester {subject.term_number}
+                            </p>
                             <p>Credits: {subject.credits}</p>
                             <p>Weekly Hours: {subject.weekly_hours}</p>
                         </div>
+
                         <div className="flex justify-end gap-2 mt-4">
                             <button onClick={() => handleEdit(subject)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg">
                                 <Pencil className="w-4 h-4" />
@@ -149,29 +180,31 @@ export default function Subjects() {
                         </div>
                     </div>
                 ))}
-                {subjects.length === 0 && (
-                    <div className="col-span-full text-center py-12 text-gray-500">
-                        No subjects found. Create terms first, then add subjects.
-                    </div>
-                )}
             </div>
 
             {showModal && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
                     <div className="bg-white rounded-xl p-6 w-full max-w-md">
                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-lg font-semibold">{editingId ? 'Edit' : 'Add'} Subject</h2>
+                            <h2 className="text-lg font-semibold">
+                                {editingId ? 'Edit' : 'Add'} Subject
+                            </h2>
                             <button onClick={() => setShowModal(false)} className="p-1 hover:bg-gray-100 rounded">
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
+
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Term (Course - Semester)</label>
-                                <select 
-                                    value={form.academic_term_id} 
-                                    onChange={(e) => setForm({ ...form, academic_term_id: parseInt(e.target.value) })} 
-                                    className="w-full px-4 py-2 border rounded-lg" 
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Term (Course - Semester)
+                                </label>
+                                <select
+                                    value={form.academic_term_id}
+                                    onChange={(e) =>
+                                        setForm({ ...form, academic_term_id: parseInt(e.target.value) })
+                                    }
+                                    className="w-full px-4 py-2 border rounded-lg"
                                     required
                                 >
                                     <option value="">Select Term</option>
@@ -182,36 +215,110 @@ export default function Subjects() {
                                     ))}
                                 </select>
                             </div>
+
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Subject Name</label>
-                                <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-4 py-2 border rounded-lg" placeholder="e.g., Mathematics" required />
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Subject Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={form.name}
+                                    onChange={(e) =>
+                                        setForm({ ...form, name: e.target.value })
+                                    }
+                                    className="w-full px-4 py-2 border rounded-lg"
+                                    placeholder="e.g., Mathematics"
+                                    required
+                                />
                             </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Code</label>
-                                    <input type="text" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className="w-full px-4 py-2 border rounded-lg" placeholder="e.g., MATH101" required />
+                                    <input
+                                        type="text"
+                                        value={form.code}
+                                        onChange={(e) =>
+                                            setForm({ ...form, code: e.target.value.toUpperCase() })
+                                        }
+                                        className="w-full px-4 py-2 border rounded-lg"
+                                        placeholder="e.g., MATH101"
+                                        required
+                                    />
                                 </div>
+
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                                    <select value={form.subject_type} onChange={(e) => setForm({ ...form, subject_type: e.target.value })} className="w-full px-4 py-2 border rounded-lg">
+                                    <select
+                                        value={form.subject_type}
+                                        onChange={(e) =>
+                                            setForm({ ...form, subject_type: e.target.value })
+                                        }
+                                        className="w-full px-4 py-2 border rounded-lg"
+                                    >
                                         <option value="MANDATORY">Mandatory</option>
                                         <option value="ELECTIVE">Elective</option>
                                     </select>
                                 </div>
                             </div>
+
+                            {/* ✅ NEW FIELD */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Subject Short Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={form.subject_short_name}
+                                    onChange={(e) =>
+                                        setForm({
+                                            ...form,
+                                            subject_short_name: e.target.value.toUpperCase()
+                                        })
+                                    }
+                                    className="w-full px-4 py-2 border rounded-lg"
+                                    placeholder="e.g., DBMS"
+                                    required
+                                />
+                            </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Credits</label>
-                                    <input type="number" min="1" value={form.credits} onChange={(e) => setForm({ ...form, credits: parseInt(e.target.value) })} className="w-full px-4 py-2 border rounded-lg" />
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        value={form.credits}
+                                        onChange={(e) =>
+                                            setForm({ ...form, credits: parseInt(e.target.value) })
+                                        }
+                                        className="w-full px-4 py-2 border rounded-lg"
+                                    />
                                 </div>
+
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Weekly Hours</label>
-                                    <input type="number" min="1" value={form.weekly_hours} onChange={(e) => setForm({ ...form, weekly_hours: parseInt(e.target.value) })} className="w-full px-4 py-2 border rounded-lg" />
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        value={form.weekly_hours}
+                                        onChange={(e) =>
+                                            setForm({ ...form, weekly_hours: parseInt(e.target.value) })
+                                        }
+                                        className="w-full px-4 py-2 border rounded-lg"
+                                    />
                                 </div>
                             </div>
+
                             <div className="flex justify-end gap-2 pt-2">
-                                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded-lg">Cancel</button>
-                                <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded-lg">
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={saving}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                                >
                                     {saving ? 'Saving...' : 'Save'}
                                 </button>
                             </div>
