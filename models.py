@@ -363,7 +363,7 @@ class TimetableSlot(Base):
     section_id = Column(Integer, ForeignKey("sections.id", ondelete="CASCADE"), nullable=True)
     batch_id = Column(Integer, ForeignKey("batches.id", ondelete="CASCADE"), nullable=True)
     room_id = Column(Integer, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
-    day_of_week = Column(Enum(DayOfWeek), nullable=False)
+    date = Column(Date, nullable=False)
     start_time = Column(Time, nullable=False)
     end_time = Column(Time, nullable=False)
     is_active = Column(Boolean, default=True)
@@ -378,10 +378,10 @@ class TimetableSlot(Base):
     room = relationship("Room", back_populates="timetable_slots")
 
     __table_args__ = (
-        UniqueConstraint("academic_term_id", "section_id", "day_of_week", "start_time", "end_time", name="unique_section_slot"),
-        UniqueConstraint("academic_term_id", "batch_id", "day_of_week", "start_time", "end_time", name="unique_batch_slot"),
-        UniqueConstraint("faculty_id", "day_of_week", "start_time", "end_time", name="unique_faculty_slot"),
-        UniqueConstraint("room_id", "day_of_week", "start_time", "end_time", name="unique_room_slot"),
+        UniqueConstraint("academic_term_id", "section_id", "date", "start_time", "end_time", name="unique_section_slot"),
+        UniqueConstraint("academic_term_id", "batch_id", "date", "start_time", "end_time", name="unique_batch_slot"),
+        UniqueConstraint("faculty_id", "date", "start_time", "end_time", name="unique_faculty_slot"),
+        UniqueConstraint("room_id", "date", "start_time", "end_time", name="unique_room_slot"),
         CheckConstraint("end_time > start_time", name="check_slot_times"),
     )
 

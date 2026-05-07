@@ -102,12 +102,27 @@ def validate_faculty_department_match(db: Session, faculty_id: int, subject_id: 
         )
 
 
+def validate_faculty_assignment_exists(db: Session, faculty_id: int, subject_id: int, section_id: int = None, batch_id: int = None) -> None:
+    query = db.query(FacultyAssignment).filter(
+        FacultyAssignment.faculty_id == faculty_id,
+        FacultyAssignment.subject_id == subject_id,
+        FacultyAssignment.is_active == True
+    )
+    if section_id:
+        query = query.filter(FacultyAssignment.section_id == section_id)
+    if batch_id:
+        query = query.filter(FacultyAssignment.batch_id == batch_id)
+    assignment = query.first()
+    if not assignment:
+        raise HTTPException(400, "No faculty assignment found. Assign the faculty to this subject first.")
+
+
 def check_timetable_conflicts(db: Session, data: TimetableSlotCreate, exclude_slot_id: int = None) -> list:
     conflicts = []
     
     faculty_conflict = db.query(TimetableSlot).filter(
         TimetableSlot.faculty_id == data.faculty_id,
-        TimetableSlot.day_of_week == data.day_of_week,
+        TimetableSlot.date == data.date,
         TimetableSlot.start_time < data.end_time,
         TimetableSlot.end_time > data.start_time,
         TimetableSlot.is_active == True,
@@ -118,7 +133,7 @@ def check_timetable_conflicts(db: Session, data: TimetableSlotCreate, exclude_sl
     
     room_conflict = db.query(TimetableSlot).filter(
         TimetableSlot.room_id == data.room_id,
-        TimetableSlot.day_of_week == data.day_of_week,
+        TimetableSlot.date == data.date,
         TimetableSlot.start_time < data.end_time,
         TimetableSlot.end_time > data.start_time,
         TimetableSlot.is_active == True,
@@ -130,7 +145,7 @@ def check_timetable_conflicts(db: Session, data: TimetableSlotCreate, exclude_sl
     if data.section_id:
         section_conflict = db.query(TimetableSlot).filter(
             TimetableSlot.section_id == data.section_id,
-            TimetableSlot.day_of_week == data.day_of_week,
+            TimetableSlot.date == data.date,
             TimetableSlot.start_time < data.end_time,
             TimetableSlot.end_time > data.start_time,
             TimetableSlot.is_active == True,
@@ -142,7 +157,7 @@ def check_timetable_conflicts(db: Session, data: TimetableSlotCreate, exclude_sl
     if data.batch_id:
         batch_conflict = db.query(TimetableSlot).filter(
             TimetableSlot.batch_id == data.batch_id,
-            TimetableSlot.day_of_week == data.day_of_week,
+            TimetableSlot.date == data.date,
             TimetableSlot.start_time < data.end_time,
             TimetableSlot.end_time > data.start_time,
             TimetableSlot.is_active == True,
@@ -1271,6 +1286,7 @@ def create_timetable_slot(data: TimetableSlotCreate, db: Session = Depends(get_d
         raise HTTPException(404, "Term not found")
     
     validate_faculty_department_match(db, data.faculty_id, data.subject_id)
+    validate_faculty_assignment_exists(db, data.faculty_id, data.subject_id, data.section_id, data.batch_id)
     
     conflicts = check_timetable_conflicts(db, data)
     if conflicts:
@@ -1311,7 +1327,7 @@ def get_timetable_by_term(term_id: int, db: Session = Depends(get_db), current_u
             "section_id": slot.section_id,
             "batch_id": slot.batch_id,
             "room_id": slot.room_id,
-            "day_of_week": slot.day_of_week,
+            "date": slot.date.isoformat() if slot.date else None,
             "start_time": slot.start_time,
             "end_time": slot.end_time,
             "is_active": slot.is_active,
@@ -1338,7 +1354,7 @@ def get_timetable_by_section(section_id: int, db: Session = Depends(get_db), cur
     slots = db.query(TimetableSlot).filter(
         TimetableSlot.section_id == section_id,
         TimetableSlot.is_active == True
-    ).order_by(TimetableSlot.day_of_week, TimetableSlot.start_time).all()
+    ).order_by(TimetableSlot.date, TimetableSlot.start_time).all()
     
     result = []
     for slot in slots:
@@ -1350,7 +1366,7 @@ def get_timetable_by_section(section_id: int, db: Session = Depends(get_db), cur
             "section_id": slot.section_id,
             "batch_id": slot.batch_id,
             "room_id": slot.room_id,
-            "day_of_week": slot.day_of_week,
+            "date": slot.date.isoformat() if slot.date else None,
             "start_time": slot.start_time,
             "end_time": slot.end_time,
             "is_active": slot.is_active,
@@ -1383,10 +1399,11 @@ def update_timetable_slot(slot_id: int, data: TimetableSlotUpdate, db: Session =
             section_id=update_data.get("section_id", slot.section_id),
             batch_id=update_data.get("batch_id", slot.batch_id),
             room_id=update_data.get("room_id", slot.room_id),
-            day_of_week=update_data.get("day_of_week", slot.day_of_week),
+            date=update_data.get("date", slot.date),
             start_time=update_data.get("start_time", slot.start_time),
             end_time=update_data.get("end_time", slot.end_time),
         )
+        validate_faculty_assignment_exists(db, merged_data.faculty_id, merged_data.subject_id, merged_data.section_id, merged_data.batch_id)
         conflicts = check_timetable_conflicts(db, merged_data, exclude_slot_id=slot_id)
         if conflicts:
             raise HTTPException(400, {"message": "Scheduling conflict", "conflicts": conflicts})
@@ -1430,19 +1447,26 @@ def create_bulk_timetable(slots_data: list[TimetableSlotCreate], db: Session = D
             errors.append({"index": idx, "error": "Term not found"})
             continue
         
-        conflicts = check_timetable_conflicts(db, data)
-        if conflicts:
-            errors.append({"index": idx, "error": "Conflict detected", "conflicts": conflicts})
-            continue
-        
-        slot = TimetableSlot(**data.model_dump())
-        db.add(slot)
-        try:
-            db.flush()
-            created_slots.append(slot.id)
-        except IntegrityError:
-            db.rollback()
-            errors.append({"index": idx, "error": "Database constraint violation"})
+            try:
+                validate_faculty_department_match(db, data.faculty_id, data.subject_id)
+                validate_faculty_assignment_exists(db, data.faculty_id, data.subject_id, data.section_id, data.batch_id)
+            except HTTPException as e:
+                errors.append({"index": idx, "error": e.detail})
+                continue
+            
+            conflicts = check_timetable_conflicts(db, data)
+            if conflicts:
+                errors.append({"index": idx, "error": "Conflict detected", "conflicts": conflicts})
+                continue
+            
+            slot = TimetableSlot(**data.model_dump())
+            db.add(slot)
+            try:
+                db.flush()
+                created_slots.append(slot.id)
+            except IntegrityError:
+                db.rollback()
+                errors.append({"index": idx, "error": "Database constraint violation"})
     
     db.commit()
     return {

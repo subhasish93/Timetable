@@ -320,7 +320,7 @@ class TimetableSlotBase(BaseModel):
     section_id: Optional[int] = None
     batch_id: Optional[int] = None
     room_id: int
-    day_of_week: DayOfWeek
+    date: date
     start_time: time
     end_time: time
 
@@ -342,7 +342,7 @@ class TimetableSlotUpdate(BaseModel):
     section_id: Optional[int] = None
     batch_id: Optional[int] = None
     room_id: Optional[int] = None
-    day_of_week: Optional[DayOfWeek] = None
+    date: Optional[date] = None
     start_time: Optional[time] = None
     end_time: Optional[time] = None
 
