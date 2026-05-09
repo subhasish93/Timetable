@@ -1431,9 +1431,9 @@ def delete_timetable_slot(slot_id: int, db: Session = Depends(get_db), current_u
     if not slot:
         raise HTTPException(404, "Slot not found")
     
-    slot.is_active = False
+    db.delete(slot)
     db.commit()
-    return {"message": "Slot removed"}
+    return {"message": "Slot deleted permanently"}
 
 
 # =========================
