@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, X } from 'lucide-react';
-import { getSections, createSection, updateSection, deleteSection, getTerms, getCourses } from '../api/api';
+import { useEffect, useState, useRef } from 'react';
+import { Plus, Pencil, Trash2, X, Users, Upload, ClipboardList, ChevronRight, Loader2 } from 'lucide-react';
+import { 
+    getSections, createSection, updateSection, deleteSection, getTerms, getCourses,
+    getSectionEnrollments, bulkEnrollSection, uploadEnrollSection, deleteEnrollment
+} from '../api/api';
 import toast from 'react-hot-toast';
 
 export default function Sections() {
@@ -11,6 +14,16 @@ export default function Sections() {
     const [editingId, setEditingId] = useState(null);
     const [form, setForm] = useState({ term_id: '', name: '', max_capacity: 60 });
     const [saving, setSaving] = useState(false);
+
+    const [showStudentsModal, setShowStudentsModal] = useState(false);
+    const [selectedSection, setSelectedSection] = useState(null);
+    const [enrollments, setEnrollments] = useState([]);
+    const [enrollmentsLoading, setEnrollmentsLoading] = useState(false);
+    const [activeTab, setActiveTab] = useState('list');
+    const [pasteText, setPasteText] = useState('');
+    const [pasteProcessing, setPasteProcessing] = useState(false);
+    const [uploadProcessing, setUploadProcessing] = useState(false);
+    const fileInputRef = useRef(null);
 
     useEffect(() => {
         loadData();
@@ -67,7 +80,6 @@ export default function Sections() {
             resetForm();
             loadData();
         } catch (err) {
-            // Error handled by interceptor
         } finally {
             setSaving(false);
         }
@@ -95,7 +107,89 @@ export default function Sections() {
             toast.success('Section deleted');
             loadData();
         } catch (err) {
-            // Error handled by interceptor
+        }
+    };
+
+    const openStudentsModal = async (section) => {
+        setSelectedSection(section);
+        setEnrollments([]);
+        setActiveTab('list');
+        setPasteText('');
+        setShowStudentsModal(true);
+        await loadEnrollments(section.id);
+    };
+
+    const loadEnrollments = async (sectionId) => {
+        setEnrollmentsLoading(true);
+        try {
+            const res = await getSectionEnrollments(sectionId);
+            setEnrollments(res.data);
+        } catch (err) {
+        } finally {
+            setEnrollmentsLoading(false);
+        }
+    };
+
+    const handleRemoveEnrollment = async (enrollmentId) => {
+        if (!confirm('Remove this student?')) return;
+        try {
+            await deleteEnrollment(enrollmentId);
+            toast.success('Student removed');
+            loadEnrollments(selectedSection.id);
+        } catch (err) {
+        }
+    };
+
+    const parseStudentIds = (text) => {
+        if (!text) return [];
+        const lines = text.split(/[\n,;\t]+/);
+        return lines
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+    };
+
+    const handlePasteEnroll = async () => {
+        const ids = parseStudentIds(pasteText);
+        if (ids.length === 0) {
+            toast.error('No student IDs found');
+            return;
+        }
+        
+        setPasteProcessing(true);
+        try {
+            const res = await bulkEnrollSection(selectedSection.id, ids);
+            const { added, already_enrolled, skipped } = res.data;
+            let msg = `${added} added`;
+            if (already_enrolled > 0) msg += `, ${already_enrolled} already enrolled`;
+            if (skipped > 0) msg += `, ${skipped} skipped (capacity)`;
+            toast.success(msg);
+            setPasteText('');
+            loadEnrollments(selectedSection.id);
+        } catch (err) {
+        } finally {
+            setPasteProcessing(false);
+        }
+    };
+
+    const handleFileChange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        
+        setUploadProcessing(true);
+        try {
+            const res = await uploadEnrollSection(selectedSection.id, file);
+            const { total, added, already_enrolled, skipped } = res.data;
+            let msg = `Processed ${total}: ${added} added`;
+            if (already_enrolled > 0) msg += `, ${already_enrolled} already enrolled`;
+            if (skipped > 0) msg += `, ${skipped} skipped (capacity)`;
+            toast.success(msg);
+            loadEnrollments(selectedSection.id);
+        } catch (err) {
+        } finally {
+            setUploadProcessing(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
         }
     };
 
@@ -145,6 +239,13 @@ export default function Sections() {
                                     </span>
                                 </td>
                                 <td className="px-6 py-4 text-right">
+                                    <button 
+                                        onClick={() => openStudentsModal(section)} 
+                                        className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg"
+                                        title="Manage Students"
+                                    >
+                                        <Users className="w-4 h-4" />
+                                    </button>
                                     <button onClick={() => handleEdit(section)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg">
                                         <Pencil className="w-4 h-4" />
                                     </button>
@@ -225,6 +326,176 @@ export default function Sections() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {showStudentsModal && selectedSection && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+                        <div className="flex justify-between items-center p-6 border-b border-gray-100">
+                            <div>
+                                <h2 className="text-lg font-semibold">Manage Students</h2>
+                                <p className="text-sm text-gray-500 mt-0.5">
+                                    Section {selectedSection.name} • {selectedSection.display_name} • 
+                                    Enrolled: {enrollments.length} / {selectedSection.max_capacity}
+                                </p>
+                            </div>
+                            <button onClick={() => setShowStudentsModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="flex border-b border-gray-100">
+                            <button
+                                onClick={() => setActiveTab('list')}
+                                className={`flex items-center gap-1.5 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                                    activeTab === 'list' 
+                                        ? 'border-blue-600 text-blue-600' 
+                                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                                }`}
+                            >
+                                <Users className="w-4 h-4" />
+                                Enrolled ({enrollments.length})
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('paste')}
+                                className={`flex items-center gap-1.5 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                                    activeTab === 'paste' 
+                                        ? 'border-blue-600 text-blue-600' 
+                                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                                }`}
+                            >
+                                <ClipboardList className="w-4 h-4" />
+                                Paste IDs
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('upload')}
+                                className={`flex items-center gap-1.5 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                                    activeTab === 'upload' 
+                                        ? 'border-blue-600 text-blue-600' 
+                                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                                }`}
+                            >
+                                <Upload className="w-4 h-4" />
+                                Upload Excel
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-auto p-6">
+                            {activeTab === 'list' && (
+                                <div>
+                                    {enrollmentsLoading ? (
+                                        <div className="flex items-center justify-center py-12">
+                                            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                                        </div>
+                                    ) : enrollments.length === 0 ? (
+                                        <div className="text-center py-12">
+                                            <Users className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                                            <p className="text-gray-500">No students enrolled yet</p>
+                                            <p className="text-sm text-gray-400 mt-1">Use "Paste IDs" or "Upload Excel" to add students</p>
+                                        </div>
+                                    ) : (
+                                        <div className="border border-gray-200 rounded-lg overflow-hidden">
+                                            <table className="w-full">
+                                                <thead className="bg-gray-50">
+                                                    <tr>
+                                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Student ID</th>
+                                                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {enrollments.map((e, idx) => (
+                                                        <tr key={e.id} className="hover:bg-gray-50">
+                                                            <td className="px-4 py-3 text-sm text-gray-500">{idx + 1}</td>
+                                                            <td className="px-4 py-3 text-sm font-medium text-gray-900 font-mono">{e.student_id}</td>
+                                                            <td className="px-4 py-3 text-right">
+                                                                <button 
+                                                                    onClick={() => handleRemoveEnrollment(e.id)}
+                                                                    className="p-1.5 text-red-500 hover:bg-red-50 rounded"
+                                                                >
+                                                                    <Trash2 className="w-4 h-4" />
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {activeTab === 'paste' && (
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Paste Student IDs</label>
+                                        <p className="text-xs text-gray-500 mb-2">
+                                            Enter one ID per line, or separate with commas, semicolons, or tabs
+                                        </p>
+                                        <textarea
+                                            value={pasteText}
+                                            onChange={(e) => setPasteText(e.target.value)}
+                                            placeholder="1001&#10;1002&#10;1003&#10;or: 1001, 1002, 1003"
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                                            rows={8}
+                                        />
+                                    </div>
+                                    {parseStudentIds(pasteText).length > 0 && (
+                                        <p className="text-sm text-gray-600">
+                                            <span className="font-medium">{parseStudentIds(pasteText).length}</span> IDs detected
+                                        </p>
+                                    )}
+                                    <button
+                                        onClick={handlePasteEnroll}
+                                        disabled={pasteProcessing || parseStudentIds(pasteText).length === 0}
+                                        className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {pasteProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
+                                        <Plus className="w-4 h-4" />
+                                        Enroll {parseStudentIds(pasteText).length > 0 ? `${parseStudentIds(pasteText).length} Students` : 'Students'}
+                                    </button>
+                                </div>
+                            )}
+
+                            {activeTab === 'upload' && (
+                                <div className="space-y-6">
+                                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                                        <Upload className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+                                        <p className="text-sm font-medium text-gray-700 mb-1">Upload Excel File</p>
+                                        <p className="text-xs text-gray-500 mb-4">
+                                            Reads student IDs from the first column (.xlsx or .xls)
+                                        </p>
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept=".xlsx,.xls"
+                                            onChange={handleFileChange}
+                                            className="hidden"
+                                        />
+                                        <button
+                                            onClick={() => fileInputRef.current?.click()}
+                                            disabled={uploadProcessing}
+                                            className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 mx-auto"
+                                        >
+                                            {uploadProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
+                                            <Upload className="w-4 h-4" />
+                                            {uploadProcessing ? 'Processing...' : 'Select File'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex justify-end gap-2 p-6 border-t border-gray-100">
+                            <button 
+                                onClick={() => setShowStudentsModal(false)} 
+                                className="px-5 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

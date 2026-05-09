@@ -7,6 +7,7 @@ TermType = Literal["SEMESTER", "YEAR"]
 SubjectType = Literal["MANDATORY", "ELECTIVE"]
 DayOfWeek = Literal["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]
 UserRole = Literal["super_admin", "admin", "faculty"]
+GroupType = Literal["section", "batch"]
 
 
 DAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]
@@ -399,3 +400,46 @@ class ConflictResponse(BaseModel):
     type: str
     message: str
     details: dict
+
+
+# =========================
+# STUDENT ENROLLMENT
+# =========================
+class StudentEnrollmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    group_type: GroupType
+    group_id: int
+    student_id: str
+    is_active: bool
+    created_at: Optional[date] = None
+
+
+class BulkEnrollRequest(BaseModel):
+    student_ids: list[str]
+
+
+class BulkEnrollResult(BaseModel):
+    total: int
+    added: int
+    already_enrolled: int
+    skipped: int
+
+
+# =========================
+# STUDENT TIMETABLE
+# =========================
+class StudentTimetableSlot(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    date: date
+    start_time: time
+    end_time: time
+    subject_name: Optional[str] = None
+    subject_code: Optional[str] = None
+    faculty_name: Optional[str] = None
+    room_name: Optional[str] = None
+    group_type: Optional[GroupType] = None
+    group_name: Optional[str] = None

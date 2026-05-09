@@ -1,17 +1,20 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, or_
 from fastapi.middleware.cors import CORSMiddleware
 import secrets
 import string
+import io
+from datetime import date
 
 from auth import get_current_user, get_current_admin, get_current_super_admin
 from db import SessionLocal
 from models import (
     Base, Organisation, Department, Course, AcademicTerm,
     Subject, Section, Batch, Faculty, FacultyAssignment,
-    Room, TimetableSlot, User, TermType, SubjectType, DayOfWeek, UserRole
+    Room, TimetableSlot, User, TermType, SubjectType, DayOfWeek, UserRole,
+    StudentGroupMap, GroupType
 )
 from schemas import (
     OrganisationCreate, OrganisationUpdate, OrganisationResponse,
@@ -26,7 +29,9 @@ from schemas import (
     RoomCreate, RoomUpdate, RoomResponse,
     TimetableSlotCreate, TimetableSlotUpdate, TimetableSlotResponse,
     TimetableSlotWithDetails,
-    UserCreate, LoginRequest, TokenResponse
+    UserCreate, LoginRequest, TokenResponse,
+    StudentEnrollmentResponse, BulkEnrollRequest, BulkEnrollResult,
+    StudentTimetableSlot
 )
 
 app = FastAPI(title="Class Timetable API Service")
@@ -1519,3 +1524,364 @@ def get_dashboard_summary(db: Session = Depends(get_db), current_user: User = De
         "rooms": total_rooms,
         "timetable_slots": total_slots
     }
+
+
+# =========================
+# STUDENT ENROLLMENT HELPERS
+# =========================
+def parse_uids_from_excel(contents: bytes) -> list[str]:
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        raise HTTPException(500, "Excel parsing not available. Install openpyxl.")
+    
+    wb = load_workbook(io.BytesIO(contents), data_only=True)
+    ws = wb.active
+    
+    uids = []
+    for row in ws.iter_rows(min_row=1, max_col=1, values_only=True):
+        uid = row[0]
+        if uid is not None:
+            uid_str = str(uid).strip()
+            if uid_str:
+                uids.append(uid_str)
+    
+    return uids
+
+
+def get_enrollment_count(db: Session, group_type: GroupType, group_id: int) -> int:
+    return db.query(StudentGroupMap).filter(
+        StudentGroupMap.group_type == group_type,
+        StudentGroupMap.group_id == group_id,
+        StudentGroupMap.is_active == True
+    ).count()
+
+
+def bulk_enroll_students(
+    db: Session,
+    group_type: GroupType,
+    group_id: int,
+    student_ids: list[str],
+    max_capacity: int = None
+) -> BulkEnrollResult:
+    cleaned_ids = []
+    for sid in student_ids:
+        s = str(sid).strip()
+        if s:
+            cleaned_ids.append(s)
+    
+    if not cleaned_ids:
+        return BulkEnrollResult(total=0, added=0, already_enrolled=0, skipped=0)
+    
+    current_count = get_enrollment_count(db, group_type, group_id)
+    added = 0
+    already_enrolled = 0
+    skipped = 0
+    
+    for student_id in cleaned_ids:
+        if max_capacity is not None and current_count >= max_capacity:
+            skipped += 1
+            continue
+        
+        existing = db.query(StudentGroupMap).filter(
+            StudentGroupMap.group_type == group_type,
+            StudentGroupMap.group_id == group_id,
+            StudentGroupMap.student_id == student_id
+        ).first()
+        
+        if existing:
+            if existing.is_active:
+                already_enrolled += 1
+            else:
+                existing.is_active = True
+                added += 1
+                current_count += 1
+        else:
+            enrollment = StudentGroupMap(
+                group_type=group_type,
+                group_id=group_id,
+                student_id=student_id
+            )
+            db.add(enrollment)
+            added += 1
+            current_count += 1
+    
+    db.commit()
+    return BulkEnrollResult(
+        total=len(cleaned_ids),
+        added=added,
+        already_enrolled=already_enrolled,
+        skipped=skipped
+    )
+
+
+# =========================
+# SECTION ENROLLMENT ENDPOINTS
+# =========================
+@app.get("/sections/{section_id}/enrollments", response_model=list[StudentEnrollmentResponse])
+def get_section_enrollments(
+    section_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    section = db.query(Section).join(AcademicTerm).join(Course).join(Department).filter(
+        Section.id == section_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not section:
+        raise HTTPException(404, "Section not found")
+    
+    return db.query(StudentGroupMap).filter(
+        StudentGroupMap.group_type == GroupType.section,
+        StudentGroupMap.group_id == section_id,
+        StudentGroupMap.is_active == True
+    ).order_by(StudentGroupMap.student_id).all()
+
+
+@app.post("/sections/{section_id}/enroll/bulk", response_model=BulkEnrollResult)
+def bulk_enroll_section(
+    section_id: int,
+    data: BulkEnrollRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    section = db.query(Section).join(AcademicTerm).join(Course).join(Department).filter(
+        Section.id == section_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not section:
+        raise HTTPException(404, "Section not found")
+    
+    return bulk_enroll_students(
+        db=db,
+        group_type=GroupType.section,
+        group_id=section_id,
+        student_ids=data.student_ids,
+        max_capacity=section.max_capacity
+    )
+
+
+@app.post("/sections/{section_id}/enroll/upload", response_model=BulkEnrollResult)
+async def upload_enroll_section(
+    section_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    section = db.query(Section).join(AcademicTerm).join(Course).join(Department).filter(
+        Section.id == section_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not section:
+        raise HTTPException(404, "Section not found")
+    
+    if not (file.filename and (file.filename.endswith('.xlsx') or file.filename.endswith('.xls'))):
+        raise HTTPException(400, "Please upload an Excel file (.xlsx or .xls)")
+    
+    contents = await file.read()
+    try:
+        student_ids = parse_uids_from_excel(contents)
+    except Exception as e:
+        raise HTTPException(400, f"Failed to parse Excel file: {str(e)}")
+    
+    return bulk_enroll_students(
+        db=db,
+        group_type=GroupType.section,
+        group_id=section_id,
+        student_ids=student_ids,
+        max_capacity=section.max_capacity
+    )
+
+
+# =========================
+# BATCH ENROLLMENT ENDPOINTS
+# =========================
+@app.get("/batches/{batch_id}/enrollments", response_model=list[StudentEnrollmentResponse])
+def get_batch_enrollments(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    batch = db.query(Batch).join(AcademicTerm).join(Course).join(Department).filter(
+        Batch.id == batch_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not batch:
+        raise HTTPException(404, "Batch not found")
+    
+    return db.query(StudentGroupMap).filter(
+        StudentGroupMap.group_type == GroupType.batch,
+        StudentGroupMap.group_id == batch_id,
+        StudentGroupMap.is_active == True
+    ).order_by(StudentGroupMap.student_id).all()
+
+
+@app.post("/batches/{batch_id}/enroll/bulk", response_model=BulkEnrollResult)
+def bulk_enroll_batch(
+    batch_id: int,
+    data: BulkEnrollRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    batch = db.query(Batch).join(AcademicTerm).join(Course).join(Department).filter(
+        Batch.id == batch_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not batch:
+        raise HTTPException(404, "Batch not found")
+    
+    return bulk_enroll_students(
+        db=db,
+        group_type=GroupType.batch,
+        group_id=batch_id,
+        student_ids=data.student_ids,
+        max_capacity=batch.max_capacity
+    )
+
+
+@app.post("/batches/{batch_id}/enroll/upload", response_model=BulkEnrollResult)
+async def upload_enroll_batch(
+    batch_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    batch = db.query(Batch).join(AcademicTerm).join(Course).join(Department).filter(
+        Batch.id == batch_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not batch:
+        raise HTTPException(404, "Batch not found")
+    
+    if not (file.filename and (file.filename.endswith('.xlsx') or file.filename.endswith('.xls'))):
+        raise HTTPException(400, "Please upload an Excel file (.xlsx or .xls)")
+    
+    contents = await file.read()
+    try:
+        student_ids = parse_uids_from_excel(contents)
+    except Exception as e:
+        raise HTTPException(400, f"Failed to parse Excel file: {str(e)}")
+    
+    return bulk_enroll_students(
+        db=db,
+        group_type=GroupType.batch,
+        group_id=batch_id,
+        student_ids=student_ids,
+        max_capacity=batch.max_capacity
+    )
+
+
+# =========================
+# DELETE ENROLLMENT (Soft Delete)
+# =========================
+@app.delete("/enrollments/{enrollment_id}")
+def delete_enrollment(
+    enrollment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    enrollment = db.query(StudentGroupMap).filter(
+        StudentGroupMap.id == enrollment_id
+    ).first()
+    
+    if not enrollment:
+        raise HTTPException(404, "Enrollment not found")
+    
+    group_id = enrollment.group_id
+    group_type = enrollment.group_type
+    
+    belongs_to_org = False
+    if group_type == GroupType.section:
+        section = db.query(Section).join(AcademicTerm).join(Course).join(Department).filter(
+            Section.id == group_id,
+            Department.organisation_id == current_user.organisation_id
+        ).first()
+        belongs_to_org = section is not None
+    else:
+        batch = db.query(Batch).join(AcademicTerm).join(Course).join(Department).filter(
+            Batch.id == group_id,
+            Department.organisation_id == current_user.organisation_id
+        ).first()
+        belongs_to_org = batch is not None
+    
+    if not belongs_to_org:
+        raise HTTPException(404, "Enrollment not found")
+    
+    enrollment.is_active = False
+    db.commit()
+    return {"message": "Enrollment deactivated", "student_id": enrollment.student_id}
+
+
+# =========================
+# STUDENT TIMETABLE ENDPOINT
+# =========================
+@app.get("/students/{student_id}/timetable", response_model=list[StudentTimetableSlot])
+def get_student_timetable(
+    student_id: str,
+    date: date,
+    db: Session = Depends(get_db)
+):
+    enrollments = db.query(StudentGroupMap).filter(
+        StudentGroupMap.student_id == student_id,
+        StudentGroupMap.is_active == True
+    ).all()
+    
+    if not enrollments:
+        return []
+    
+    section_ids = []
+    batch_ids = []
+    for e in enrollments:
+        if e.group_type == GroupType.section:
+            section_ids.append(e.group_id)
+        else:
+            batch_ids.append(e.group_id)
+    
+    query_filters = [
+        TimetableSlot.date == date,
+        TimetableSlot.is_active == True
+    ]
+    
+    if section_ids and batch_ids:
+        query_filters.append(or_(
+            TimetableSlot.section_id.in_(section_ids),
+            TimetableSlot.batch_id.in_(batch_ids)
+        ))
+    elif section_ids:
+        query_filters.append(TimetableSlot.section_id.in_(section_ids))
+    elif batch_ids:
+        query_filters.append(TimetableSlot.batch_id.in_(batch_ids))
+    else:
+        return []
+    
+    slots = db.query(TimetableSlot).filter(
+        and_(*query_filters)
+    ).order_by(TimetableSlot.start_time).all()
+    
+    result = []
+    for slot in slots:
+        group_type = None
+        group_name = None
+        
+        if slot.section_id is not None and slot.section_id in section_ids:
+            group_type = "section"
+            group_name = slot.section.name if slot.section else None
+        elif slot.batch_id is not None and slot.batch_id in batch_ids:
+            group_type = "batch"
+            group_name = slot.batch.name if slot.batch else None
+        
+        slot_dict = {
+            "id": slot.id,
+            "date": slot.date,
+            "start_time": slot.start_time,
+            "end_time": slot.end_time,
+            "subject_name": slot.subject.name if slot.subject else None,
+            "subject_code": slot.subject.code if slot.subject else None,
+            "faculty_name": slot.faculty.name if slot.faculty else None,
+            "room_name": slot.room.name if slot.room else None,
+            "group_type": group_type,
+            "group_name": group_name,
+        }
+        result.append(slot_dict)
+    
+    return result

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Plus, Trash2, X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { getTimetableByTerm, createTimetableSlot, deleteTimetableSlot, getTerms, getFaculties, getRooms, getSubjects, getCourses, getDepartments, getFacultyAssignments } from '../api/api';
+import { getTimetableByTerm, createTimetableSlot, deleteTimetableSlot, getTerms, getFaculties, getRooms, getSubjects, getCourses, getDepartments, getFacultyAssignments, getSections, getBatches } from '../api/api';
 import toast from 'react-hot-toast';
 
 const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
@@ -51,6 +51,8 @@ export default function TimetableManager() {
     const [selectedFaculty, setSelectedFaculty] = useState('');
     const [subjectAssignments, setSubjectAssignments] = useState([]);
     const [subjectAssignmentsLoaded, setSubjectAssignmentsLoaded] = useState(false);
+    const [sections, setSections] = useState([]);
+    const [batches, setBatches] = useState([]);
 
     useEffect(() => {
         loadInitialData();
@@ -164,18 +166,30 @@ export default function TimetableManager() {
         });
     }, [filteredSlots, weekDates]);
 
-    const handleTermChange = (e) => {
+    const handleTermChange = async (e) => {
         const termId = e.target.value;
         setSelectedTerm(termId);
         const term = terms.find(t => t.id === parseInt(termId));
         setSelectedTermInfo(term);
-        setForm({ ...form, academic_term_id: termId, subject_id: '', faculty_id: '', room_id: '' });
+        setForm({ ...form, academic_term_id: termId, subject_id: '', faculty_id: '', room_id: '', section_id: null, batch_id: null });
         setSelectedFaculty('');
         setSubjectAssignments([]);
         setSubjectAssignmentsLoaded(false);
+        setSections([]);
+        setBatches([]);
         if (termId) {
             setSelectedDate(term.start_date);
             loadTimetable(termId);
+            try {
+                const [sectionsRes, batchesRes] = await Promise.all([
+                    getSections(termId),
+                    getBatches(termId)
+                ]);
+                setSections(sectionsRes.data);
+                setBatches(batchesRes.data);
+            } catch (err) {
+                console.error(err);
+            }
         } else {
             setSelectedDate('');
             setSlots([]);
@@ -437,6 +451,36 @@ export default function TimetableManager() {
                                     ))}
                                 </select>
                             </div>
+                            {sections.length > 0 && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Section</label>
+                                    <select
+                                        value={form.section_id || ''}
+                                        onChange={(e) => setForm({ ...form, section_id: e.target.value || null })}
+                                        className="w-full px-4 py-2 border rounded-lg"
+                                    >
+                                        <option value="">Select Section</option>
+                                        {sections.map(s => (
+                                            <option key={s.id} value={s.id}>{s.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            {batches.length > 0 && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Batch</label>
+                                    <select
+                                        value={form.batch_id || ''}
+                                        onChange={(e) => setForm({ ...form, batch_id: e.target.value || null })}
+                                        className="w-full px-4 py-2 border rounded-lg"
+                                    >
+                                        <option value="">Select Batch</option>
+                                        {batches.map(b => (
+                                            <option key={b.id} value={b.id}>{b.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
                                 <input

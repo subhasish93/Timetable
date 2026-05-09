@@ -145,4 +145,33 @@ export const superAdminCreateAdmin = (orgId, username, email) =>
 export const superAdminGetUsers = () => api.get('/super-admin/users');
 export const superAdminGetStats = () => api.get('/super-admin/stats');
 
+// ================= STUDENT ENROLLMENT =================
+export const getSectionEnrollments = (sectionId) => api.get(`/sections/${sectionId}/enrollments`);
+export const bulkEnrollSection = (sectionId, studentIds) => 
+    api.post(`/sections/${sectionId}/enroll/bulk`, { student_ids: studentIds });
+export const uploadEnrollSection = (sectionId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post(`/sections/${sectionId}/enroll/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    });
+};
+
+export const getBatchEnrollments = (batchId) => api.get(`/batches/${batchId}/enrollments`);
+export const bulkEnrollBatch = (batchId, studentIds) => 
+    api.post(`/batches/${batchId}/enroll/bulk`, { student_ids: studentIds });
+export const uploadEnrollBatch = (batchId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post(`/batches/${batchId}/enroll/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    });
+};
+
+export const deleteEnrollment = (enrollmentId) => api.delete(`/enrollments/${enrollmentId}`);
+
+// ================= STUDENT TIMETABLE =================
+export const getStudentTimetable = (studentId, date) => 
+    api.get(`/students/${studentId}/timetable`, { params: { date } });
+
 export default api;

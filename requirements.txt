@@ -6,3 +6,5 @@ pydantic
 python-dotenv
 python-jose[cryptography]
 pwdlib[argon2]
+openpyxl
+python-multipart

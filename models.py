@@ -34,6 +34,11 @@ class DayOfWeek(str, enum.Enum):
     SUNDAY = "SUNDAY"
 
 
+class GroupType(str, enum.Enum):
+    section = "section"
+    batch = "batch"
+
+
 # =========================
 # ORGANISATION
 # =========================
@@ -408,4 +413,25 @@ class User(Base):
 
     __table_args__ = (
         Index("idx_user_username", "username"),
+    )
+
+
+# =========================
+# STUDENT GROUP MAP (Enrollment)
+# =========================
+class StudentGroupMap(Base):
+    __tablename__ = "student_group_map"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_type = Column(Enum(GroupType), nullable=False)
+    group_id = Column(Integer, nullable=False)
+    student_id = Column(String, nullable=False, index=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(Date, server_default=func.now())
+    updated_at = Column(Date, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("group_type", "group_id", "student_id", name="unique_student_per_group"),
+        Index("idx_student_group_map_group", "group_type", "group_id"),
+        Index("idx_student_group_map_active", "is_active"),
     )
