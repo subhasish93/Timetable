@@ -136,16 +136,17 @@ def check_timetable_conflicts(db: Session, data: TimetableSlotCreate, exclude_sl
     if faculty_conflict:
         conflicts.append({"type": "faculty", "message": "Faculty already has a class at this time"})
     
-    room_conflict = db.query(TimetableSlot).filter(
-        TimetableSlot.room_id == data.room_id,
-        TimetableSlot.date == data.date,
-        TimetableSlot.start_time < data.end_time,
-        TimetableSlot.end_time > data.start_time,
-        TimetableSlot.is_active == True,
-        exclude_slot_id is None or TimetableSlot.id != exclude_slot_id
-    ).first()
-    if room_conflict:
-        conflicts.append({"type": "room", "message": "Room is already occupied at this time"})
+    if data.room_id:
+        room_conflict = db.query(TimetableSlot).filter(
+            TimetableSlot.room_id == data.room_id,
+            TimetableSlot.date == data.date,
+            TimetableSlot.start_time < data.end_time,
+            TimetableSlot.end_time > data.start_time,
+            TimetableSlot.is_active == True,
+            exclude_slot_id is None or TimetableSlot.id != exclude_slot_id
+        ).first()
+        if room_conflict:
+            conflicts.append({"type": "room", "message": "Room is already occupied at this time"})
     
     if data.section_id:
         section_conflict = db.query(TimetableSlot).filter(
@@ -977,8 +978,6 @@ def create_batch(term_id: int, data: BatchCreate, db: Session = Depends(get_db),
     ).first()
     if not subject:
         raise HTTPException(404, "Subject not found in this term")
-    if subject.subject_type != SubjectType.ELECTIVE:
-        raise HTTPException(400, "Batches can only be created for elective subjects")
     
     batch = Batch(
         academic_term_id=term_id,
@@ -1336,6 +1335,7 @@ def get_timetable_by_term(term_id: int, db: Session = Depends(get_db), current_u
             "start_time": slot.start_time,
             "end_time": slot.end_time,
             "is_active": slot.is_active,
+            "modality": slot.modality,
             "subject_name": slot.subject.name if slot.subject else None,
             "faculty_name": slot.faculty.name if slot.faculty else None,
             "section_name": slot.section.name if slot.section else None,
@@ -1375,6 +1375,7 @@ def get_timetable_by_section(section_id: int, db: Session = Depends(get_db), cur
             "start_time": slot.start_time,
             "end_time": slot.end_time,
             "is_active": slot.is_active,
+            "modality": slot.modality,
             "subject_name": slot.subject.name if slot.subject else None,
             "faculty_name": slot.faculty.name if slot.faculty else None,
             "section_name": slot.section.name if slot.section else None,

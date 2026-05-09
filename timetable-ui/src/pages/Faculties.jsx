@@ -172,6 +172,10 @@ export default function Faculty() {
     const handleAssign = async (e) => {
         e.preventDefault();
         if (!assignForm.subject_id) return;
+        if (!assignForm.section_id && !assignForm.batch_id) {
+            toast.error('Select a section or batch');
+            return;
+        }
         setAssignSaving(true);
         try {
             const data = {
@@ -221,8 +225,6 @@ export default function Faculty() {
         if (!assignForm.subject_id) return null;
         return getSubject(parseInt(assignForm.subject_id));
     }, [assignForm.subject_id, subjects]);
-
-    const assignSubjectType = selectedAssignSubject?.subject_type;
 
     const availableSections = useMemo(() => {
         if (!selectedAssignSubject) return [];
@@ -426,38 +428,35 @@ export default function Faculty() {
                                         ))}
                                 </select>
                             </div>
-                            {assignSubjectType === 'MANDATORY' && (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Section</label>
-                                    <select
-                                        value={assignForm.section_id}
-                                        onChange={(e) => setAssignForm({ ...assignForm, section_id: e.target.value, batch_id: '' })}
-                                        className="w-full px-4 py-2 border rounded-lg"
-                                        required
-                                    >
-                                        <option value="">Select Section</option>
-                                        {availableSections.map(s => (
-                                            <option key={s.id} value={s.id}>{s.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
-                            {assignSubjectType === 'ELECTIVE' && (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Batch</label>
-                                    <select
-                                        value={assignForm.batch_id}
-                                        onChange={(e) => setAssignForm({ ...assignForm, batch_id: e.target.value, section_id: '' })}
-                                        className="w-full px-4 py-2 border rounded-lg"
-                                        required
-                                    >
-                                        <option value="">Select Batch</option>
-                                        {availableBatches.map(b => (
-                                            <option key={b.id} value={b.id}>{b.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Section (optional)</label>
+                                <select
+                                    value={assignForm.section_id}
+                                    onChange={(e) => setAssignForm({ ...assignForm, section_id: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg"
+                                >
+                                    <option value="">Select Section</option>
+                                    {availableSections.map(s => (
+                                        <option key={s.id} value={s.id}>{s.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Batch (optional)</label>
+                                <select
+                                    value={assignForm.batch_id}
+                                    onChange={(e) => setAssignForm({ ...assignForm, batch_id: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg"
+                                >
+                                    <option value="">Select Batch</option>
+                                    {availableBatches.map(b => (
+                                        <option key={b.id} value={b.id}>{b.name}</option>
+                                    ))}
+                                </select>
+                                {!assignForm.section_id && !assignForm.batch_id && selectedAssignSubject && (
+                                    <p className="text-xs text-orange-500 mt-1">Select a section or batch to continue</p>
+                                )}
+                            </div>
                             <div className="flex justify-end gap-2 pt-2">
                                 <button type="button" onClick={() => setShowAssignModal(false)} className="px-4 py-2 border rounded-lg">Cancel</button>
                                 <button type="submit" disabled={assignSaving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">

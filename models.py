@@ -367,10 +367,11 @@ class TimetableSlot(Base):
     faculty_id = Column(Integer, ForeignKey("faculties.id", ondelete="CASCADE"), nullable=False)
     section_id = Column(Integer, ForeignKey("sections.id", ondelete="CASCADE"), nullable=True)
     batch_id = Column(Integer, ForeignKey("batches.id", ondelete="CASCADE"), nullable=True)
-    room_id = Column(Integer, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
+    room_id = Column(Integer, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=True)
     date = Column(Date, nullable=False)
     start_time = Column(Time, nullable=False)
     end_time = Column(Time, nullable=False)
+    modality = Column(String(20), default="Offline")
     is_active = Column(Boolean, default=True)
     created_at = Column(Date, server_default=func.now())
     updated_at = Column(Date, server_default=func.now(), onupdate=func.now())
@@ -388,6 +389,7 @@ class TimetableSlot(Base):
         UniqueConstraint("faculty_id", "date", "start_time", "end_time", name="unique_faculty_slot"),
         UniqueConstraint("room_id", "date", "start_time", "end_time", name="unique_room_slot"),
         CheckConstraint("end_time > start_time", name="check_slot_times"),
+        CheckConstraint("section_id IS NOT NULL OR batch_id IS NOT NULL", name="check_section_or_batch"),
     )
 
 

@@ -44,7 +44,7 @@ export default function TimetableManager() {
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [form, setForm] = useState({
-        subject_id: '', faculty_id: '', section_id: null, batch_id: null, room_id: '', date: '', start_time: '09:00', end_time: '10:00'
+        subject_id: '', faculty_id: '', section_id: null, batch_id: null, room_id: '', date: '', start_time: '09:00', end_time: '10:00', modality: 'Offline'
     });
     const [saving, setSaving] = useState(false);
     const [selectedDate, setSelectedDate] = useState('');
@@ -216,6 +216,14 @@ export default function TimetableManager() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!form.section_id && !form.batch_id) {
+            toast.error('Please select at least a Section or a Batch');
+            return;
+        }
+        if (form.modality !== 'Online' && !form.room_id) {
+            toast.error('Room is required for Offline and Hybrid classes');
+            return;
+        }
         setSaving(true);
         try {
             const data = {
@@ -224,15 +232,16 @@ export default function TimetableManager() {
                 faculty_id: parseInt(form.faculty_id),
                 section_id: form.section_id ? parseInt(form.section_id) : null,
                 batch_id: form.batch_id ? parseInt(form.batch_id) : null,
-                room_id: parseInt(form.room_id),
+                room_id: form.room_id ? parseInt(form.room_id) : null,
                 date: form.date,
                 start_time: form.start_time + ':00',
-                end_time: form.end_time + ':00'
+                end_time: form.end_time + ':00',
+                modality: form.modality
             };
             await createTimetableSlot(data);
             toast.success('Slot created');
             setShowModal(false);
-            setForm({ subject_id: '', faculty_id: '', section_id: null, batch_id: null, room_id: '', date: '', start_time: '09:00', end_time: '10:00' });
+            setForm({ subject_id: '', faculty_id: '', section_id: null, batch_id: null, room_id: '', date: '', start_time: '09:00', end_time: '10:00', modality: 'Offline' });
             loadTimetable(selectedTerm);
         } catch (err) {
             // Error handled by interceptor
@@ -365,7 +374,14 @@ export default function TimetableManager() {
                             <div key={wd.dayOfWeek} className="border-r last:border-r-0 p-2 space-y-2">
                                 {getSlotsByDay(idx).map(slot => (
                                     <div key={slot.id} className="bg-blue-50 border border-blue-200 rounded-lg p-2 text-sm">
-                                        <div className="font-medium text-blue-900">{slot.subject_name}</div>
+                                        <div className="flex items-center justify-between">
+                                            <div className="font-medium text-blue-900">{slot.subject_name}</div>
+                                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                                                slot.modality === 'Online' ? 'bg-green-100 text-green-800' :
+                                                slot.modality === 'Hybrid' ? 'bg-amber-100 text-amber-800' :
+                                                'bg-blue-100 text-blue-800'
+                                            }`}>{slot.modality || 'Offline'}</span>
+                                        </div>
                                         <div className="text-blue-700">{slot.start_time?.slice(0,5)} - {slot.end_time?.slice(0,5)}</div>
                                         <div className="text-blue-600">{slot.faculty_name}</div>
                                         <div className="text-blue-500">{slot.room_name}</div>
@@ -434,23 +450,25 @@ export default function TimetableManager() {
                                     ))}
                                 </select>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Room {selectedSubjectDepartmentId && <span className="text-xs text-gray-500">(filtered by department)</span>}
-                                </label>
-                                <select 
-                                    value={form.room_id} 
-                                    onChange={(e) => setForm({ ...form, room_id: e.target.value })} 
-                                    className="w-full px-4 py-2 border rounded-lg" 
-                                    required
-                                    disabled={!selectedSubjectDepartmentId}
-                                >
-                                    <option value="">{!selectedSubjectDepartmentId ? 'Select a subject first' : 'Select Room'}</option>
-                                    {filteredRooms.map(r => (
-                                        <option key={r.id} value={r.id}>{r.name} (Capacity: {r.capacity})</option>
-                                    ))}
-                                </select>
-                            </div>
+                            {form.modality !== 'Online' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Room {selectedSubjectDepartmentId && <span className="text-xs text-gray-500">(filtered by department)</span>}
+                                    </label>
+                                    <select 
+                                        value={form.room_id} 
+                                        onChange={(e) => setForm({ ...form, room_id: e.target.value })} 
+                                        className="w-full px-4 py-2 border rounded-lg" 
+                                        required
+                                        disabled={!selectedSubjectDepartmentId}
+                                    >
+                                        <option value="">{!selectedSubjectDepartmentId ? 'Select a subject first' : 'Select Room'}</option>
+                                        {filteredRooms.map(r => (
+                                            <option key={r.id} value={r.id}>{r.name} (Capacity: {r.capacity})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                             {sections.length > 0 && (
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Section</label>
@@ -492,6 +510,18 @@ export default function TimetableManager() {
                                     className="w-full px-4 py-2 border rounded-lg"
                                     required
                                 />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Modality</label>
+                                <select
+                                    value={form.modality}
+                                    onChange={(e) => setForm({ ...form, modality: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg"
+                                >
+                                    <option value="Offline">Offline</option>
+                                    <option value="Online">Online</option>
+                                    <option value="Hybrid">Hybrid</option>
+                                </select>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>

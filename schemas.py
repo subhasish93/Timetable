@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
+from pydantic import BaseModel, EmailStr, field_validator, model_validator, ConfigDict
 from typing import Optional, Literal
 from datetime import date, time
 
@@ -320,10 +320,11 @@ class TimetableSlotBase(BaseModel):
     faculty_id: int
     section_id: Optional[int] = None
     batch_id: Optional[int] = None
-    room_id: int
+    room_id: Optional[int] = None
     date: date
     start_time: time
     end_time: time
+    modality: str = "Offline"
 
     @field_validator('end_time')
     @classmethod
@@ -331,6 +332,18 @@ class TimetableSlotBase(BaseModel):
         if 'start_time' in info.data and v <= info.data['start_time']:
             raise ValueError('end_time must be after start_time')
         return v
+
+    @model_validator(mode='after')
+    def validate_room_for_modality(self):
+        if self.modality in ("Offline", "Hybrid") and self.room_id is None:
+            raise ValueError('Room is required for Offline and Hybrid classes')
+        return self
+
+    @model_validator(mode='after')
+    def validate_section_or_batch(self):
+        if self.section_id is None and self.batch_id is None:
+            raise ValueError('At least one of Section or Batch must be selected')
+        return self
 
 
 class TimetableSlotCreate(TimetableSlotBase):
@@ -346,6 +359,7 @@ class TimetableSlotUpdate(BaseModel):
     date: Optional[date] = None
     start_time: Optional[time] = None
     end_time: Optional[time] = None
+    modality: Optional[str] = None
 
 
 class TimetableSlotResponse(TimetableSlotBase):

@@ -9,7 +9,7 @@ import toast from 'react-hot-toast';
 export default function Batches() {
     const [batches, setBatches] = useState([]);
     const [subjects, setSubjects] = useState([]);
-    const [electives, setElectives] = useState([]);
+
     const [terms, setTerms] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -46,21 +46,16 @@ export default function Batches() {
             setTerms(termsWithCourse);
 
             const allSubjects = [];
-            const allElectives = [];
             for (const term of termsRes.data) {
                 try {
                     const subsRes = await getSubjects(term.id);
                     const course = coursesRes.data.find(c => c.id === term.course_id);
                     subsRes.data.forEach(s => {
                         allSubjects.push({ ...s, term_id: term.id, course_name: course?.name, term_number: term.term_number });
-                        if (s.subject_type === 'ELECTIVE') {
-                            allElectives.push({ ...s, term_id: term.id, course_name: course?.name, term_number: term.term_number });
-                        }
                     });
                 } catch (e) {}
             }
             setSubjects(allSubjects);
-            setElectives(allElectives);
 
             const allBatches = [];
             for (const term of termsRes.data) {
@@ -235,8 +230,8 @@ export default function Batches() {
         <div>
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Elective Batches</h1>
-                    <p className="text-sm text-gray-500 mt-1">Create groups for elective subjects</p>
+                    <h1 className="text-2xl font-bold text-gray-900">Batches</h1>
+                    <p className="text-sm text-gray-500 mt-1">Create groups for subjects</p>
                 </div>
                 <button
                     onClick={() => { resetForm(); setShowModal(true); }}
@@ -251,7 +246,7 @@ export default function Batches() {
                     <thead className="bg-gray-50">
                         <tr>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Semester</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Elective Subject</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subject</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Batch</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Capacity</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -293,7 +288,7 @@ export default function Batches() {
                         {batches.length === 0 && (
                             <tr>
                                 <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
-                                    No batches found. Create elective subjects first, then add batches.
+                                    No batches found. Create subjects first, then add batches.
                                 </td>
                             </tr>
                         )}
@@ -329,7 +324,7 @@ export default function Batches() {
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Elective Subject</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
                                 <select 
                                     value={form.subject_id} 
                                     onChange={(e) => setForm({ ...form, subject_id: parseInt(e.target.value) })} 
@@ -337,15 +332,15 @@ export default function Batches() {
                                     required
                                     disabled={editingId}
                                 >
-                                    <option value="">Select Elective</option>
-                                    {electives.filter(e => e.term_id === form.term_id).map(s => (
+                                    <option value="">Select Subject</option>
+                                    {subjects.filter(e => e.term_id === form.term_id).map(s => (
                                         <option key={s.id} value={s.id}>
                                             {s.name} ({s.code})
                                         </option>
                                     ))}
                                 </select>
-                                {electives.filter(e => e.term_id === form.term_id).length === 0 && form.term_id && (
-                                    <p className="text-xs text-orange-500 mt-1">No elective subjects in this semester. Create one first.</p>
+                                {subjects.filter(e => e.term_id === form.term_id).length === 0 && form.term_id && (
+                                    <p className="text-xs text-orange-500 mt-1">No subjects in this semester. Create one first.</p>
                                 )}
                             </div>
                             <div className="grid grid-cols-2 gap-4">
