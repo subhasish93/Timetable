@@ -7,7 +7,7 @@ const BASE_MENU = [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/department', label: 'Departments', icon: Building },
     { to: '/courses', label: 'Courses', icon: BookMarked },
-    { to: '/terms', label: 'Semesters', icon: Calendar },
+    { to: '/terms', label: 'Terms', icon: Calendar },
     { to: '/sections', label: 'Sections', icon: UsersRound },
     { to: '/batches', label: 'Batches', icon: Users },
     { to: '/subjects', label: 'Subjects', icon: BookOpen },

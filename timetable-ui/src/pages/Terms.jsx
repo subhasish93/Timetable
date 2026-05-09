@@ -8,8 +8,10 @@ export default function Terms() {
     const [courses, setCourses] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
-    const [form, setForm] = useState({ course_id: '', term_number: 1, start_date: '', end_date: '' });
+    const [form, setForm] = useState({ course_id: '', term_number: 1, term_type: 'SEMESTER', start_date: '', end_date: '' });
     const [saving, setSaving] = useState(false);
+    const [filterCourse, setFilterCourse] = useState('');
+    const [filterTermType, setFilterTermType] = useState('');
 
     useEffect(() => {
         loadData();
@@ -29,6 +31,8 @@ export default function Terms() {
             
             setTerms(termsWithCourse);
             setCourses(coursesRes.data);
+            setFilterCourse('');
+            setFilterTermType('');
         } catch (err) {
             console.error(err);
         } finally {
@@ -42,47 +46,19 @@ export default function Terms() {
         try {
             const data = {
                 term_number: form.term_number,
-                term_type: 'SEMESTER',
+                term_type: form.term_type,
                 start_date: form.start_date,
                 end_date: form.end_date
             };
             await createTerm(form.course_id, data);
             toast.success('Term created');
             setShowModal(false);
-            setForm({ course_id: '', term_number: 1, start_date: '', end_date: '' });
+            setForm({ course_id: '', term_number: 1, term_type: 'SEMESTER', start_date: '', end_date: '' });
             loadData();
         } catch (err) {
             // Error handled by interceptor
         } finally {
             setSaving(false);
-        }
-    };
-
-    const calculateDates = (courseId, termNumber) => {
-        if (!courseId || !termNumber) return;
-        
-        const currentYear = new Date().getFullYear();
-        
-        // Odd semesters: Aug-Dec, Even semesters: Jan-May
-        const yearOffset = Math.floor((termNumber - 1) / 2);
-        const isOddSemester = termNumber % 2 === 1;
-        
-        const year = currentYear + yearOffset;
-        
-        if (isOddSemester) {
-            setForm({
-                course_id: courseId,
-                term_number: termNumber,
-                start_date: `${year}-08-01`,
-                end_date: `${year}-12-31`
-            });
-        } else {
-            setForm({
-                course_id: courseId,
-                term_number: termNumber,
-                start_date: `${year}-01-01`,
-                end_date: `${year}-05-31`
-            });
         }
     };
 
@@ -97,6 +73,20 @@ export default function Terms() {
         }
     };
 
+    const filteredTerms = terms.filter(term => {
+        if (filterCourse && term.course_id !== parseInt(filterCourse)) return false;
+        if (filterTermType && term.term_type !== filterTermType) return false;
+        return true;
+    });
+
+    const selectedCourse = courses.find(c => c.id === form.course_id);
+    const maxTerms = selectedCourse
+        ? selectedCourse.term_type === 'YEAR'
+            ? selectedCourse.duration_years
+            : selectedCourse.duration_years * 2
+        : 8;
+    const termLabel = form.term_type === 'YEAR' ? 'Year' : 'Semester';
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -107,25 +97,55 @@ export default function Terms() {
 
     return (
         <div>
-                    <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Semesters</h1>
-                    <p className="text-sm text-gray-500 mt-1">Manage semesters for your courses</p>
+                    <h1 className="text-2xl font-bold text-gray-900">Terms</h1>
+                    <p className="text-sm text-gray-500 mt-1">Manage terms for your courses</p>
                 </div>
                 <button
                     onClick={() => {
-                        const defaultCourse = courses[0]?.id || '';
-                        if (defaultCourse) {
-                            calculateDates(defaultCourse, 1);
-                        } else {
-            setForm({ course_id: '', term_number: 1, start_date: '', end_date: '' });
-                        }
+                        const defaultCourse = courses[0];
+                        setForm({
+                            course_id: defaultCourse?.id || '',
+                            term_number: 1,
+                            term_type: defaultCourse?.term_type || 'SEMESTER',
+                            start_date: '',
+                            end_date: ''
+                        });
                         setShowModal(true);
                     }}
                     className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                 >
                     <Plus className="w-5 h-5" /> Add Term
                 </button>
+            </div>
+
+            <div className="flex gap-4 mb-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Course</label>
+                    <select
+                        value={filterCourse}
+                        onChange={(e) => setFilterCourse(e.target.value)}
+                        className="px-4 py-2 border rounded-lg"
+                    >
+                        <option value="">All Courses</option>
+                        {courses.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Term Type</label>
+                    <select
+                        value={filterTermType}
+                        onChange={(e) => setFilterTermType(e.target.value)}
+                        className="px-4 py-2 border rounded-lg"
+                    >
+                        <option value="">All Types</option>
+                        <option value="SEMESTER">SEMESTER</option>
+                        <option value="YEAR">YEAR</option>
+                    </select>
+                </div>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -141,10 +161,10 @@ export default function Terms() {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                        {terms.map((term) => (
+                        {filteredTerms.map((term) => (
                             <tr key={term.id} className="hover:bg-gray-50">
                                 <td className="px-6 py-4 text-gray-900 font-medium">{term.course_name}</td>
-                                <td className="px-6 py-4 text-gray-900">Semester {term.term_number}</td>
+                                <td className="px-6 py-4 text-gray-900">{term.term_type === 'YEAR' ? 'Year' : 'Semester'} {term.term_number}</td>
                                 <td className="px-6 py-4">
                                     <span className="px-2 py-1 text-xs rounded-full bg-purple-100 text-purple-700">{term.term_type}</span>
                                 </td>
@@ -163,7 +183,7 @@ export default function Terms() {
                                 </td>
                             </tr>
                         ))}
-                        {terms.length === 0 && (
+                        {filteredTerms.length === 0 && (
                             <tr>
                                 <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
                                     No terms found. Create courses first, then add terms.
@@ -189,8 +209,13 @@ export default function Terms() {
                                 <select 
                                     value={form.course_id} 
                                     onChange={(e) => {
-                                        const courseId = parseInt(e.target.value);
-                                        calculateDates(courseId, form.term_number);
+                                        const course = courses.find(c => c.id === parseInt(e.target.value));
+                                        setForm({
+                                            ...form,
+                                            course_id: parseInt(e.target.value),
+                                            term_type: course?.term_type || 'SEMESTER',
+                                            term_number: 1
+                                        });
                                     }} 
                                     className="w-full px-4 py-2 border rounded-lg" 
                                     required
@@ -203,28 +228,38 @@ export default function Terms() {
                                     ))}
                                 </select>
                             </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">{termLabel} Number</label>
+                                <select 
+                                    value={form.term_number} 
+                                    onChange={(e) => setForm({ ...form, term_number: parseInt(e.target.value) })} 
+                                    className="w-full px-4 py-2 border rounded-lg"
+                                    required
+                                >
+                                    {Array.from({ length: maxTerms }, (_, i) => i + 1).map(n => (
+                                        <option key={n} value={n}>{termLabel} {n}</option>
+                                    ))}
+                                </select>
+                            </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
-                                    <select 
-                                        value={form.term_number} 
-                                        onChange={(e) => calculateDates(form.course_id, parseInt(e.target.value))} 
-                                        className="w-full px-4 py-2 border rounded-lg"
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                                    <input 
+                                        type="date" 
+                                        value={form.start_date} 
+                                        onChange={(e) => setForm({ ...form, start_date: e.target.value })} 
+                                        className="w-full px-4 py-2 border rounded-lg" 
                                         required
-                                    >
-                                        {Array.from({ length: 8 }, (_, i) => i + 1).map(n => (
-                                            <option key={n} value={n}>Semester {n}</option>
-                                        ))}
-                                    </select>
+                                    />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Duration</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
                                     <input 
-                                        type="text" 
-                                        value={form.start_date ? `${form.start_date} to ${form.end_date}` : ''} 
-                                        className="w-full px-4 py-2 border rounded-lg bg-gray-50" 
-                                        readOnly 
-                                        placeholder="Auto-filled"
+                                        type="date" 
+                                        value={form.end_date} 
+                                        onChange={(e) => setForm({ ...form, end_date: e.target.value })} 
+                                        className="w-full px-4 py-2 border rounded-lg" 
+                                        required
                                     />
                                 </div>
                             </div>

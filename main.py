@@ -1,17 +1,20 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, or_
 from fastapi.middleware.cors import CORSMiddleware
 import secrets
 import string
+import io
+from datetime import date
 
 from auth import get_current_user, get_current_admin, get_current_super_admin
 from db import SessionLocal
 from models import (
     Base, Organisation, Department, Course, AcademicTerm,
     Subject, Section, Batch, Faculty, FacultyAssignment,
-    Room, TimetableSlot, User, TermType, SubjectType, DayOfWeek, UserRole
+    Room, TimetableSlot, User, TermType, SubjectType, DayOfWeek, UserRole,
+    StudentGroupMap, GroupType
 )
 from schemas import (
     OrganisationCreate, OrganisationUpdate, OrganisationResponse,
@@ -26,14 +29,17 @@ from schemas import (
     RoomCreate, RoomUpdate, RoomResponse,
     TimetableSlotCreate, TimetableSlotUpdate, TimetableSlotResponse,
     TimetableSlotWithDetails,
-    UserCreate, LoginRequest, TokenResponse
+    UserCreate, LoginRequest, TokenResponse,
+    StudentEnrollmentResponse, BulkEnrollRequest, BulkEnrollResult,
+    StudentTimetableSlot
 )
 
 app = FastAPI(title="Class Timetable API Service")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    #allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -101,12 +107,27 @@ def validate_faculty_department_match(db: Session, faculty_id: int, subject_id: 
         )
 
 
+def validate_faculty_assignment_exists(db: Session, faculty_id: int, subject_id: int, section_id: int = None, batch_id: int = None) -> None:
+    query = db.query(FacultyAssignment).filter(
+        FacultyAssignment.faculty_id == faculty_id,
+        FacultyAssignment.subject_id == subject_id,
+        FacultyAssignment.is_active == True
+    )
+    if section_id:
+        query = query.filter(FacultyAssignment.section_id == section_id)
+    if batch_id:
+        query = query.filter(FacultyAssignment.batch_id == batch_id)
+    assignment = query.first()
+    if not assignment:
+        raise HTTPException(400, "No faculty assignment found. Assign the faculty to this subject first.")
+
+
 def check_timetable_conflicts(db: Session, data: TimetableSlotCreate, exclude_slot_id: int = None) -> list:
     conflicts = []
     
     faculty_conflict = db.query(TimetableSlot).filter(
         TimetableSlot.faculty_id == data.faculty_id,
-        TimetableSlot.day_of_week == data.day_of_week,
+        TimetableSlot.date == data.date,
         TimetableSlot.start_time < data.end_time,
         TimetableSlot.end_time > data.start_time,
         TimetableSlot.is_active == True,
@@ -115,21 +136,22 @@ def check_timetable_conflicts(db: Session, data: TimetableSlotCreate, exclude_sl
     if faculty_conflict:
         conflicts.append({"type": "faculty", "message": "Faculty already has a class at this time"})
     
-    room_conflict = db.query(TimetableSlot).filter(
-        TimetableSlot.room_id == data.room_id,
-        TimetableSlot.day_of_week == data.day_of_week,
-        TimetableSlot.start_time < data.end_time,
-        TimetableSlot.end_time > data.start_time,
-        TimetableSlot.is_active == True,
-        exclude_slot_id is None or TimetableSlot.id != exclude_slot_id
-    ).first()
-    if room_conflict:
-        conflicts.append({"type": "room", "message": "Room is already occupied at this time"})
+    if data.room_id:
+        room_conflict = db.query(TimetableSlot).filter(
+            TimetableSlot.room_id == data.room_id,
+            TimetableSlot.date == data.date,
+            TimetableSlot.start_time < data.end_time,
+            TimetableSlot.end_time > data.start_time,
+            TimetableSlot.is_active == True,
+            exclude_slot_id is None or TimetableSlot.id != exclude_slot_id
+        ).first()
+        if room_conflict:
+            conflicts.append({"type": "room", "message": "Room is already occupied at this time"})
     
     if data.section_id:
         section_conflict = db.query(TimetableSlot).filter(
             TimetableSlot.section_id == data.section_id,
-            TimetableSlot.day_of_week == data.day_of_week,
+            TimetableSlot.date == data.date,
             TimetableSlot.start_time < data.end_time,
             TimetableSlot.end_time > data.start_time,
             TimetableSlot.is_active == True,
@@ -141,7 +163,7 @@ def check_timetable_conflicts(db: Session, data: TimetableSlotCreate, exclude_sl
     if data.batch_id:
         batch_conflict = db.query(TimetableSlot).filter(
             TimetableSlot.batch_id == data.batch_id,
-            TimetableSlot.day_of_week == data.day_of_week,
+            TimetableSlot.date == data.date,
             TimetableSlot.start_time < data.end_time,
             TimetableSlot.end_time > data.start_time,
             TimetableSlot.is_active == True,
@@ -403,21 +425,43 @@ def super_admin_get_stats(db: Session = Depends(get_db), current_user: User = De
 # =========================
 # DEPARTMENT
 # =========================
+
 @app.post("/departments", response_model=DepartmentResponse, status_code=201)
-def create_department(data: DepartmentCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
-    dept = Department(name=data.name, organisation_id=current_user.organisation_id)
+def create_department(
+    data: DepartmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    dept = Department(
+        name=data.name,
+        short_name=data.short_name,
+        organisation_id=current_user.organisation_id
+    )
+
     db.add(dept)
     try:
         db.commit()
         db.refresh(dept)
         return dept
-    except IntegrityError:
+
+    except IntegrityError as e:
         db.rollback()
-        raise HTTPException(400, "Department already exists in this organisation")
+
+        error_msg = str(e.orig).lower()
+
+        if "short_name" in error_msg:
+            raise HTTPException(400, "Short name already exists in this organisation")
+        elif "name" in error_msg:
+            raise HTTPException(400, "Department name already exists in this organisation")
+        else:
+            raise HTTPException(400, "Duplicate department entry")
 
 
 @app.get("/departments", response_model=list[DepartmentResponse])
-def list_departments(db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def list_departments(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     return db.query(Department).filter(
         Department.organisation_id == current_user.organisation_id,
         Department.is_active == True
@@ -425,43 +469,75 @@ def list_departments(db: Session = Depends(get_db), current_user: User = Depends
 
 
 @app.get("/departments/{dept_id}", response_model=DepartmentResponse)
-def get_department(dept_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def get_department(
+    dept_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     dept = db.query(Department).filter(
         Department.id == dept_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not dept:
         raise HTTPException(404, "Department not found")
+
     return dept
 
 
 @app.put("/departments/{dept_id}", response_model=DepartmentResponse)
-def update_department(dept_id: int, data: DepartmentUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def update_department(
+    dept_id: int,
+    data: DepartmentUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     dept = db.query(Department).filter(
         Department.id == dept_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not dept:
         raise HTTPException(404, "Department not found")
-    
+
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(dept, key, value)
-    
-    db.commit()
-    db.refresh(dept)
-    return dept
+
+    try:
+        db.commit()
+        db.refresh(dept)
+        return dept
+
+    except IntegrityError as e:
+        db.rollback()
+
+        error_msg = str(e.orig).lower()
+
+        if "short_name" in error_msg:
+            raise HTTPException(400, "Short name already exists")
+        elif "name" in error_msg:
+            raise HTTPException(400, "Department name already exists")
+        else:
+            raise HTTPException(400, "Duplicate department entry")
 
 
 @app.delete("/departments/{dept_id}")
-def delete_department(dept_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def delete_department(
+    dept_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     dept = db.query(Department).filter(
         Department.id == dept_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not dept:
         raise HTTPException(404, "Department not found")
+
     dept.is_active = False
     db.commit()
+
     return {"message": "Department deactivated"}
 
 
@@ -665,99 +741,157 @@ def delete_term(term_id: int, db: Session = Depends(get_db), current_user: User 
 # =========================
 # SUBJECTS
 # =========================
+
 @app.post("/terms/{term_id}/subjects", response_model=SubjectResponse, status_code=201)
-def create_subject(term_id: int, data: SubjectCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def create_subject(
+    term_id: int,
+    data: SubjectCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     term = db.query(AcademicTerm).join(Course).join(Department).filter(
         AcademicTerm.id == term_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not term:
         raise HTTPException(404, "Term not found")
-    
+
+    # Prevent duplicate subject code in same term
     existing = db.query(Subject).filter(
         Subject.academic_term_id == term_id,
         Subject.code == data.code
     ).first()
+
     if existing:
         raise HTTPException(400, "Subject code already exists in this term")
-    
+
+    # ✅ MAIN FIX: include subject_short_name
     subject = Subject(
         academic_term_id=term_id,
         name=data.name,
         code=data.code,
+        subject_short_name=data.subject_short_name or data.code,  # ✅ fallback safety
         subject_type=SubjectType(data.subject_type) if isinstance(data.subject_type, str) else data.subject_type,
         credits=data.credits,
         weekly_hours=data.weekly_hours
     )
+
     db.add(subject)
     db.commit()
     db.refresh(subject)
+
     return subject
 
 
 @app.get("/terms/{term_id}/subjects", response_model=list[SubjectResponse])
-def list_subjects(term_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def list_subjects(
+    term_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     term = db.query(AcademicTerm).join(Course).join(Department).filter(
         AcademicTerm.id == term_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not term:
         raise HTTPException(404, "Term not found")
-    
-    return db.query(Subject).filter(
+
+    subjects = db.query(Subject).filter(
         Subject.academic_term_id == term_id,
         Subject.is_active == True
     ).all()
 
+    # ✅ Safety fix for old NULL data (prevents crash)
+    for s in subjects:
+        if not s.subject_short_name:
+            s.subject_short_name = s.code
+
+    return subjects
+
 
 @app.get("/subjects/{subject_id}", response_model=SubjectResponse)
-def get_subject(subject_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def get_subject(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     subject = db.query(Subject).join(AcademicTerm).join(Course).join(Department).filter(
         Subject.id == subject_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not subject:
         raise HTTPException(404, "Subject not found")
+
+    # ✅ Safety fallback
+    if not subject.subject_short_name:
+        subject.subject_short_name = subject.code
+
     return subject
 
 
 @app.put("/subjects/{subject_id}", response_model=SubjectResponse)
-def update_subject(subject_id: int, data: SubjectUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def update_subject(
+    subject_id: int,
+    data: SubjectUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     subject = db.query(Subject).join(AcademicTerm).join(Course).join(Department).filter(
         Subject.id == subject_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not subject:
         raise HTTPException(404, "Subject not found")
-    
-    for key, value in data.model_dump(exclude_unset=True).items():
+
+    update_data = data.model_dump(exclude_unset=True)
+
+    for key, value in update_data.items():
         if key == "subject_type" and value:
             value = SubjectType(value)
+
+        if key == "subject_short_name":
+            value = value or subject.code
+
         setattr(subject, key, value)
-    
+
     db.commit()
     db.refresh(subject)
+
+    if not subject.subject_short_name:
+        subject.subject_short_name = subject.code
+
     return subject
 
 
 @app.delete("/subjects/{subject_id}")
-def delete_subject(subject_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
+def delete_subject(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
     subject = db.query(Subject).join(AcademicTerm).join(Course).join(Department).filter(
         Subject.id == subject_id,
         Department.organisation_id == current_user.organisation_id
     ).first()
+
     if not subject:
         raise HTTPException(404, "Subject not found")
-    
+
     has_timetable = db.query(TimetableSlot).filter(
         TimetableSlot.subject_id == subject_id,
         TimetableSlot.is_active == True
     ).first()
+
     if has_timetable:
         raise HTTPException(400, "Cannot delete subject used in timetable")
-    
+
     subject.is_active = False
     db.commit()
+
     return {"message": "Subject deactivated"}
 
 
@@ -848,8 +982,6 @@ def create_batch(term_id: int, data: BatchCreate, db: Session = Depends(get_db),
     ).first()
     if not subject:
         raise HTTPException(404, "Subject not found in this term")
-    if subject.subject_type != SubjectType.ELECTIVE:
-        raise HTTPException(400, "Batches can only be created for elective subjects")
     
     batch = Batch(
         academic_term_id=term_id,
@@ -1162,6 +1294,7 @@ def create_timetable_slot(data: TimetableSlotCreate, db: Session = Depends(get_d
         raise HTTPException(404, "Term not found")
     
     validate_faculty_department_match(db, data.faculty_id, data.subject_id)
+    validate_faculty_assignment_exists(db, data.faculty_id, data.subject_id, data.section_id, data.batch_id)
     
     conflicts = check_timetable_conflicts(db, data)
     if conflicts:
@@ -1202,10 +1335,11 @@ def get_timetable_by_term(term_id: int, db: Session = Depends(get_db), current_u
             "section_id": slot.section_id,
             "batch_id": slot.batch_id,
             "room_id": slot.room_id,
-            "day_of_week": slot.day_of_week,
+            "date": slot.date.isoformat() if slot.date else None,
             "start_time": slot.start_time,
             "end_time": slot.end_time,
             "is_active": slot.is_active,
+            "modality": slot.modality,
             "subject_name": slot.subject.name if slot.subject else None,
             "faculty_name": slot.faculty.name if slot.faculty else None,
             "section_name": slot.section.name if slot.section else None,
@@ -1229,7 +1363,7 @@ def get_timetable_by_section(section_id: int, db: Session = Depends(get_db), cur
     slots = db.query(TimetableSlot).filter(
         TimetableSlot.section_id == section_id,
         TimetableSlot.is_active == True
-    ).order_by(TimetableSlot.day_of_week, TimetableSlot.start_time).all()
+    ).order_by(TimetableSlot.date, TimetableSlot.start_time).all()
     
     result = []
     for slot in slots:
@@ -1241,10 +1375,11 @@ def get_timetable_by_section(section_id: int, db: Session = Depends(get_db), cur
             "section_id": slot.section_id,
             "batch_id": slot.batch_id,
             "room_id": slot.room_id,
-            "day_of_week": slot.day_of_week,
+            "date": slot.date.isoformat() if slot.date else None,
             "start_time": slot.start_time,
             "end_time": slot.end_time,
             "is_active": slot.is_active,
+            "modality": slot.modality,
             "subject_name": slot.subject.name if slot.subject else None,
             "faculty_name": slot.faculty.name if slot.faculty else None,
             "section_name": slot.section.name if slot.section else None,
@@ -1274,10 +1409,11 @@ def update_timetable_slot(slot_id: int, data: TimetableSlotUpdate, db: Session =
             section_id=update_data.get("section_id", slot.section_id),
             batch_id=update_data.get("batch_id", slot.batch_id),
             room_id=update_data.get("room_id", slot.room_id),
-            day_of_week=update_data.get("day_of_week", slot.day_of_week),
+            date=update_data.get("date", slot.date),
             start_time=update_data.get("start_time", slot.start_time),
             end_time=update_data.get("end_time", slot.end_time),
         )
+        validate_faculty_assignment_exists(db, merged_data.faculty_id, merged_data.subject_id, merged_data.section_id, merged_data.batch_id)
         conflicts = check_timetable_conflicts(db, merged_data, exclude_slot_id=slot_id)
         if conflicts:
             raise HTTPException(400, {"message": "Scheduling conflict", "conflicts": conflicts})
@@ -1299,9 +1435,9 @@ def delete_timetable_slot(slot_id: int, db: Session = Depends(get_db), current_u
     if not slot:
         raise HTTPException(404, "Slot not found")
     
-    slot.is_active = False
+    db.delete(slot)
     db.commit()
-    return {"message": "Slot removed"}
+    return {"message": "Slot deleted permanently"}
 
 
 # =========================
@@ -1321,19 +1457,26 @@ def create_bulk_timetable(slots_data: list[TimetableSlotCreate], db: Session = D
             errors.append({"index": idx, "error": "Term not found"})
             continue
         
-        conflicts = check_timetable_conflicts(db, data)
-        if conflicts:
-            errors.append({"index": idx, "error": "Conflict detected", "conflicts": conflicts})
-            continue
-        
-        slot = TimetableSlot(**data.model_dump())
-        db.add(slot)
-        try:
-            db.flush()
-            created_slots.append(slot.id)
-        except IntegrityError:
-            db.rollback()
-            errors.append({"index": idx, "error": "Database constraint violation"})
+            try:
+                validate_faculty_department_match(db, data.faculty_id, data.subject_id)
+                validate_faculty_assignment_exists(db, data.faculty_id, data.subject_id, data.section_id, data.batch_id)
+            except HTTPException as e:
+                errors.append({"index": idx, "error": e.detail})
+                continue
+            
+            conflicts = check_timetable_conflicts(db, data)
+            if conflicts:
+                errors.append({"index": idx, "error": "Conflict detected", "conflicts": conflicts})
+                continue
+            
+            slot = TimetableSlot(**data.model_dump())
+            db.add(slot)
+            try:
+                db.flush()
+                created_slots.append(slot.id)
+            except IntegrityError:
+                db.rollback()
+                errors.append({"index": idx, "error": "Database constraint violation"})
     
     db.commit()
     return {
@@ -1386,3 +1529,364 @@ def get_dashboard_summary(db: Session = Depends(get_db), current_user: User = De
         "rooms": total_rooms,
         "timetable_slots": total_slots
     }
+
+
+# =========================
+# STUDENT ENROLLMENT HELPERS
+# =========================
+def parse_uids_from_excel(contents: bytes) -> list[str]:
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        raise HTTPException(500, "Excel parsing not available. Install openpyxl.")
+    
+    wb = load_workbook(io.BytesIO(contents), data_only=True)
+    ws = wb.active
+    
+    uids = []
+    for row in ws.iter_rows(min_row=1, max_col=1, values_only=True):
+        uid = row[0]
+        if uid is not None:
+            uid_str = str(uid).strip()
+            if uid_str:
+                uids.append(uid_str)
+    
+    return uids
+
+
+def get_enrollment_count(db: Session, group_type: GroupType, group_id: int) -> int:
+    return db.query(StudentGroupMap).filter(
+        StudentGroupMap.group_type == group_type,
+        StudentGroupMap.group_id == group_id,
+        StudentGroupMap.is_active == True
+    ).count()
+
+
+def bulk_enroll_students(
+    db: Session,
+    group_type: GroupType,
+    group_id: int,
+    student_ids: list[str],
+    max_capacity: int = None
+) -> BulkEnrollResult:
+    cleaned_ids = []
+    for sid in student_ids:
+        s = str(sid).strip()
+        if s:
+            cleaned_ids.append(s)
+    
+    if not cleaned_ids:
+        return BulkEnrollResult(total=0, added=0, already_enrolled=0, skipped=0)
+    
+    current_count = get_enrollment_count(db, group_type, group_id)
+    added = 0
+    already_enrolled = 0
+    skipped = 0
+    
+    for student_id in cleaned_ids:
+        if max_capacity is not None and current_count >= max_capacity:
+            skipped += 1
+            continue
+        
+        existing = db.query(StudentGroupMap).filter(
+            StudentGroupMap.group_type == group_type,
+            StudentGroupMap.group_id == group_id,
+            StudentGroupMap.student_id == student_id
+        ).first()
+        
+        if existing:
+            if existing.is_active:
+                already_enrolled += 1
+            else:
+                existing.is_active = True
+                added += 1
+                current_count += 1
+        else:
+            enrollment = StudentGroupMap(
+                group_type=group_type,
+                group_id=group_id,
+                student_id=student_id
+            )
+            db.add(enrollment)
+            added += 1
+            current_count += 1
+    
+    db.commit()
+    return BulkEnrollResult(
+        total=len(cleaned_ids),
+        added=added,
+        already_enrolled=already_enrolled,
+        skipped=skipped
+    )
+
+
+# =========================
+# SECTION ENROLLMENT ENDPOINTS
+# =========================
+@app.get("/sections/{section_id}/enrollments", response_model=list[StudentEnrollmentResponse])
+def get_section_enrollments(
+    section_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    section = db.query(Section).join(AcademicTerm).join(Course).join(Department).filter(
+        Section.id == section_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not section:
+        raise HTTPException(404, "Section not found")
+    
+    return db.query(StudentGroupMap).filter(
+        StudentGroupMap.group_type == GroupType.section,
+        StudentGroupMap.group_id == section_id,
+        StudentGroupMap.is_active == True
+    ).order_by(StudentGroupMap.student_id).all()
+
+
+@app.post("/sections/{section_id}/enroll/bulk", response_model=BulkEnrollResult)
+def bulk_enroll_section(
+    section_id: int,
+    data: BulkEnrollRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    section = db.query(Section).join(AcademicTerm).join(Course).join(Department).filter(
+        Section.id == section_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not section:
+        raise HTTPException(404, "Section not found")
+    
+    return bulk_enroll_students(
+        db=db,
+        group_type=GroupType.section,
+        group_id=section_id,
+        student_ids=data.student_ids,
+        max_capacity=section.max_capacity
+    )
+
+
+@app.post("/sections/{section_id}/enroll/upload", response_model=BulkEnrollResult)
+async def upload_enroll_section(
+    section_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    section = db.query(Section).join(AcademicTerm).join(Course).join(Department).filter(
+        Section.id == section_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not section:
+        raise HTTPException(404, "Section not found")
+    
+    if not (file.filename and (file.filename.endswith('.xlsx') or file.filename.endswith('.xls'))):
+        raise HTTPException(400, "Please upload an Excel file (.xlsx or .xls)")
+    
+    contents = await file.read()
+    try:
+        student_ids = parse_uids_from_excel(contents)
+    except Exception as e:
+        raise HTTPException(400, f"Failed to parse Excel file: {str(e)}")
+    
+    return bulk_enroll_students(
+        db=db,
+        group_type=GroupType.section,
+        group_id=section_id,
+        student_ids=student_ids,
+        max_capacity=section.max_capacity
+    )
+
+
+# =========================
+# BATCH ENROLLMENT ENDPOINTS
+# =========================
+@app.get("/batches/{batch_id}/enrollments", response_model=list[StudentEnrollmentResponse])
+def get_batch_enrollments(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    batch = db.query(Batch).join(AcademicTerm).join(Course).join(Department).filter(
+        Batch.id == batch_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not batch:
+        raise HTTPException(404, "Batch not found")
+    
+    return db.query(StudentGroupMap).filter(
+        StudentGroupMap.group_type == GroupType.batch,
+        StudentGroupMap.group_id == batch_id,
+        StudentGroupMap.is_active == True
+    ).order_by(StudentGroupMap.student_id).all()
+
+
+@app.post("/batches/{batch_id}/enroll/bulk", response_model=BulkEnrollResult)
+def bulk_enroll_batch(
+    batch_id: int,
+    data: BulkEnrollRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    batch = db.query(Batch).join(AcademicTerm).join(Course).join(Department).filter(
+        Batch.id == batch_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not batch:
+        raise HTTPException(404, "Batch not found")
+    
+    return bulk_enroll_students(
+        db=db,
+        group_type=GroupType.batch,
+        group_id=batch_id,
+        student_ids=data.student_ids,
+        max_capacity=batch.max_capacity
+    )
+
+
+@app.post("/batches/{batch_id}/enroll/upload", response_model=BulkEnrollResult)
+async def upload_enroll_batch(
+    batch_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    batch = db.query(Batch).join(AcademicTerm).join(Course).join(Department).filter(
+        Batch.id == batch_id,
+        Department.organisation_id == current_user.organisation_id
+    ).first()
+    if not batch:
+        raise HTTPException(404, "Batch not found")
+    
+    if not (file.filename and (file.filename.endswith('.xlsx') or file.filename.endswith('.xls'))):
+        raise HTTPException(400, "Please upload an Excel file (.xlsx or .xls)")
+    
+    contents = await file.read()
+    try:
+        student_ids = parse_uids_from_excel(contents)
+    except Exception as e:
+        raise HTTPException(400, f"Failed to parse Excel file: {str(e)}")
+    
+    return bulk_enroll_students(
+        db=db,
+        group_type=GroupType.batch,
+        group_id=batch_id,
+        student_ids=student_ids,
+        max_capacity=batch.max_capacity
+    )
+
+
+# =========================
+# DELETE ENROLLMENT (Soft Delete)
+# =========================
+@app.delete("/enrollments/{enrollment_id}")
+def delete_enrollment(
+    enrollment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    enrollment = db.query(StudentGroupMap).filter(
+        StudentGroupMap.id == enrollment_id
+    ).first()
+    
+    if not enrollment:
+        raise HTTPException(404, "Enrollment not found")
+    
+    group_id = enrollment.group_id
+    group_type = enrollment.group_type
+    
+    belongs_to_org = False
+    if group_type == GroupType.section:
+        section = db.query(Section).join(AcademicTerm).join(Course).join(Department).filter(
+            Section.id == group_id,
+            Department.organisation_id == current_user.organisation_id
+        ).first()
+        belongs_to_org = section is not None
+    else:
+        batch = db.query(Batch).join(AcademicTerm).join(Course).join(Department).filter(
+            Batch.id == group_id,
+            Department.organisation_id == current_user.organisation_id
+        ).first()
+        belongs_to_org = batch is not None
+    
+    if not belongs_to_org:
+        raise HTTPException(404, "Enrollment not found")
+    
+    enrollment.is_active = False
+    db.commit()
+    return {"message": "Enrollment deactivated", "student_id": enrollment.student_id}
+
+
+# =========================
+# STUDENT TIMETABLE ENDPOINT
+# =========================
+@app.get("/students/{student_id}/timetable", response_model=list[StudentTimetableSlot])
+def get_student_timetable(
+    student_id: str,
+    date: date,
+    db: Session = Depends(get_db)
+):
+    enrollments = db.query(StudentGroupMap).filter(
+        StudentGroupMap.student_id == student_id,
+        StudentGroupMap.is_active == True
+    ).all()
+    
+    if not enrollments:
+        return []
+    
+    section_ids = []
+    batch_ids = []
+    for e in enrollments:
+        if e.group_type == GroupType.section:
+            section_ids.append(e.group_id)
+        else:
+            batch_ids.append(e.group_id)
+    
+    query_filters = [
+        TimetableSlot.date == date,
+        TimetableSlot.is_active == True
+    ]
+    
+    if section_ids and batch_ids:
+        query_filters.append(or_(
+            TimetableSlot.section_id.in_(section_ids),
+            TimetableSlot.batch_id.in_(batch_ids)
+        ))
+    elif section_ids:
+        query_filters.append(TimetableSlot.section_id.in_(section_ids))
+    elif batch_ids:
+        query_filters.append(TimetableSlot.batch_id.in_(batch_ids))
+    else:
+        return []
+    
+    slots = db.query(TimetableSlot).filter(
+        and_(*query_filters)
+    ).order_by(TimetableSlot.start_time).all()
+    
+    result = []
+    for slot in slots:
+        group_type = None
+        group_name = None
+        
+        if slot.section_id is not None and slot.section_id in section_ids:
+            group_type = "section"
+            group_name = slot.section.name if slot.section else None
+        elif slot.batch_id is not None and slot.batch_id in batch_ids:
+            group_type = "batch"
+            group_name = slot.batch.name if slot.batch else None
+        
+        slot_dict = {
+            "id": slot.id,
+            "date": slot.date,
+            "start_time": slot.start_time,
+            "end_time": slot.end_time,
+            "subject_name": slot.subject.name if slot.subject else None,
+            "subject_code": slot.subject.code if slot.subject else None,
+            "faculty_name": slot.faculty.name if slot.faculty else None,
+            "room_name": slot.room.name if slot.room else None,
+            "group_type": group_type,
+            "group_name": group_name,
+        }
+        result.append(slot_dict)
+    
+    return result

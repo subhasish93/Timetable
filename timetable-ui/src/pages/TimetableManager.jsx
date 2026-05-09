@@ -1,9 +1,36 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
-import { getTimetableByTerm, createTimetableSlot, deleteTimetableSlot, getTerms, getFaculties, getRooms, getSubjects, getCourses, getDepartments } from '../api/api';
+import { Plus, Trash2, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { getTimetableByTerm, createTimetableSlot, deleteTimetableSlot, getTerms, getFaculties, getRooms, getSubjects, getCourses, getDepartments, getFacultyAssignments, getSections, getBatches } from '../api/api';
 import toast from 'react-hot-toast';
 
 const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+
+function getMonday(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    return d;
+}
+
+function formatDate(date) {
+    const dd = String(date.getDate()).padStart(2, '0');
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    return `${dd}-${mm}`;
+}
+
+function toInputDate(date) {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+}
+
+function addWeeks(dateStr, weeks) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + weeks * 7);
+    return toInputDate(d);
+}
 
 export default function TimetableManager() {
     const [slots, setSlots] = useState([]);
@@ -17,9 +44,15 @@ export default function TimetableManager() {
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [form, setForm] = useState({
-        subject_id: '', faculty_id: '', section_id: null, batch_id: null, room_id: '', day_of_week: 'MONDAY', start_time: '09:00', end_time: '10:00'
+        subject_id: '', faculty_id: '', section_id: null, batch_id: null, room_id: '', date: '', start_time: '09:00', end_time: '10:00', modality: 'Offline'
     });
     const [saving, setSaving] = useState(false);
+    const [selectedDate, setSelectedDate] = useState('');
+    const [selectedFaculty, setSelectedFaculty] = useState('');
+    const [subjectAssignments, setSubjectAssignments] = useState([]);
+    const [subjectAssignmentsLoaded, setSubjectAssignmentsLoaded] = useState(false);
+    const [sections, setSections] = useState([]);
+    const [batches, setBatches] = useState([]);
 
     useEffect(() => {
         loadInitialData();
@@ -81,32 +114,116 @@ export default function TimetableManager() {
     }, [selectedSubject, selectedTermInfo]);
 
     const filteredFaculties = useMemo(() => {
-        if (!selectedSubjectDepartmentId) return faculties;
-        return faculties.filter(f => f.department_id === selectedSubjectDepartmentId);
-    }, [faculties, selectedSubjectDepartmentId]);
+        let result = faculties;
+        if (selectedSubjectDepartmentId) {
+            result = result.filter(f => f.department_id === selectedSubjectDepartmentId);
+        }
+        if (form.subject_id && subjectAssignmentsLoaded) {
+            const assignedFacultyIds = new Set(subjectAssignments.map(a => a.faculty_id));
+            result = result.filter(f => assignedFacultyIds.has(f.id));
+        }
+        return result;
+    }, [faculties, selectedSubjectDepartmentId, form.subject_id, subjectAssignments, subjectAssignmentsLoaded]);
 
     const filteredRooms = useMemo(() => {
         if (!selectedSubjectDepartmentId) return rooms;
         return rooms.filter(r => r.department_id === selectedSubjectDepartmentId);
     }, [rooms, selectedSubjectDepartmentId]);
 
-    const handleTermChange = (e) => {
+    const facultyOptions = useMemo(() => {
+        const seen = new Set();
+        return slots.filter(s => {
+            if (seen.has(s.faculty_id)) return false;
+            seen.add(s.faculty_id);
+            return true;
+        }).map(s => ({ id: s.faculty_id, name: s.faculty_name }));
+    }, [slots]);
+
+    const weekDates = useMemo(() => {
+        if (!selectedDate) return [];
+        const monday = getMonday(selectedDate);
+        return DAYS.map((day, index) => {
+            const d = new Date(monday);
+            d.setDate(d.getDate() + index);
+            return { dayOfWeek: day, date: d, label: `${day.slice(0, 3)} ${formatDate(d)}` };
+        });
+    }, [selectedDate]);
+
+    const filteredSlots = useMemo(() => {
+        if (!selectedFaculty) return slots;
+        return slots.filter(s => s.faculty_id === parseInt(selectedFaculty));
+    }, [slots, selectedFaculty]);
+
+    const weekSlots = useMemo(() => {
+        if (!weekDates.length) return [];
+        const start = new Date(weekDates[0].date);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(weekDates[6].date);
+        end.setHours(23, 59, 59, 999);
+        return filteredSlots.filter(s => {
+            const d = new Date(s.date + 'T00:00:00');
+            return d >= start && d <= end;
+        });
+    }, [filteredSlots, weekDates]);
+
+    const handleTermChange = async (e) => {
         const termId = e.target.value;
         setSelectedTerm(termId);
         const term = terms.find(t => t.id === parseInt(termId));
         setSelectedTermInfo(term);
-        setForm({ ...form, academic_term_id: termId, subject_id: '', faculty_id: '', room_id: '' });
-        if (termId) loadTimetable(termId);
-        else setSlots([]);
+        setForm({ ...form, academic_term_id: termId, subject_id: '', faculty_id: '', room_id: '', section_id: null, batch_id: null });
+        setSelectedFaculty('');
+        setSubjectAssignments([]);
+        setSubjectAssignmentsLoaded(false);
+        setSections([]);
+        setBatches([]);
+        if (termId) {
+            setSelectedDate(term.start_date);
+            loadTimetable(termId);
+            try {
+                const [sectionsRes, batchesRes] = await Promise.all([
+                    getSections(termId),
+                    getBatches(termId)
+                ]);
+                setSections(sectionsRes.data);
+                setBatches(batchesRes.data);
+            } catch (err) {
+                console.error(err);
+            }
+        } else {
+            setSelectedDate('');
+            setSlots([]);
+        }
     };
 
-    const handleSubjectChange = (e) => {
+    const handleSubjectChange = async (e) => {
         const subjectId = e.target.value;
         setForm({ ...form, subject_id: subjectId, faculty_id: '', room_id: '' });
+        setSubjectAssignmentsLoaded(false);
+        if (subjectId) {
+            try {
+                const res = await getFacultyAssignments({ subject_id: subjectId });
+                setSubjectAssignments(res.data);
+            } catch (e) {
+                setSubjectAssignments([]);
+            }
+            setSubjectAssignmentsLoaded(true);
+        } else {
+            setSubjectAssignments([]);
+            setSubjectAssignmentsLoaded(true);
+        }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!form.section_id && !form.batch_id) {
+            toast.error('Please select at least a Section or a Batch');
+            return;
+        }
+        if (form.modality !== 'Online' && !form.room_id) {
+            toast.error('Room is required for Offline and Hybrid classes');
+            return;
+        }
         setSaving(true);
         try {
             const data = {
@@ -115,15 +232,16 @@ export default function TimetableManager() {
                 faculty_id: parseInt(form.faculty_id),
                 section_id: form.section_id ? parseInt(form.section_id) : null,
                 batch_id: form.batch_id ? parseInt(form.batch_id) : null,
-                room_id: parseInt(form.room_id),
-                day_of_week: form.day_of_week,
+                room_id: form.room_id ? parseInt(form.room_id) : null,
+                date: form.date,
                 start_time: form.start_time + ':00',
-                end_time: form.end_time + ':00'
+                end_time: form.end_time + ':00',
+                modality: form.modality
             };
             await createTimetableSlot(data);
             toast.success('Slot created');
             setShowModal(false);
-            setForm({ subject_id: '', faculty_id: '', section_id: null, batch_id: null, room_id: '', day_of_week: 'MONDAY', start_time: '09:00', end_time: '10:00' });
+            setForm({ subject_id: '', faculty_id: '', section_id: null, batch_id: null, room_id: '', date: '', start_time: '09:00', end_time: '10:00', modality: 'Offline' });
             loadTimetable(selectedTerm);
         } catch (err) {
             // Error handled by interceptor
@@ -143,7 +261,16 @@ export default function TimetableManager() {
         }
     };
 
-    const getSlotsByDay = (day) => slots.filter(s => s.day_of_week === day);
+    const getSlotsByDay = (dayIndex) => {
+        const targetDate = weekDates[dayIndex]?.date;
+        if (!targetDate) return [];
+        return weekSlots.filter(s => {
+            const d = new Date(s.date + 'T00:00:00');
+            return d.getFullYear() === targetDate.getFullYear() &&
+                   d.getMonth() === targetDate.getMonth() &&
+                   d.getDate() === targetDate.getDate();
+        });
+    };
 
     if (loading) {
         return (
@@ -177,9 +304,23 @@ export default function TimetableManager() {
                             </option>
                         ))}
                     </select>
+                    <select
+                        value={selectedFaculty}
+                        onChange={(e) => setSelectedFaculty(e.target.value)}
+                        className="px-4 py-2 border rounded-lg min-w-[180px]"
+                        disabled={!selectedTerm}
+                    >
+                        <option value="">All Faculties</option>
+                        {facultyOptions.map(f => (
+                            <option key={f.id} value={f.id}>{f.name}</option>
+                        ))}
+                    </select>
                     {selectedTerm && (
                         <button
-                            onClick={() => setShowModal(true)}
+                            onClick={() => {
+                                setForm({ subject_id: '', faculty_id: '', section_id: null, batch_id: null, room_id: '', date: selectedDate, start_time: '09:00', end_time: '10:00' });
+                                setShowModal(true);
+                            }}
                             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                         >
                             <Plus className="w-5 h-5" /> Add Slot
@@ -188,21 +329,59 @@ export default function TimetableManager() {
                 </div>
             </div>
 
+            {selectedTerm && selectedDate && (
+                <div className="flex items-center gap-3 mb-4 flex-wrap">
+                    <span className="text-sm font-medium text-gray-700">Week:</span>
+                    <input
+                        type="date"
+                        value={selectedDate}
+                        min={selectedTermInfo?.start_date}
+                        max={selectedTermInfo?.end_date}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        className="px-3 py-1.5 border rounded-lg text-sm"
+                    />
+                    <button
+                        onClick={() => setSelectedDate(addWeeks(selectedDate, -1))}
+                        className="p-1.5 border rounded-lg hover:bg-gray-50 disabled:opacity-30"
+                        disabled={new Date(selectedDate + 'T00:00:00') <= new Date(selectedTermInfo?.start_date + 'T00:00:00')}
+                    >
+                        <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={() => setSelectedDate(addWeeks(selectedDate, 1))}
+                        className="p-1.5 border rounded-lg hover:bg-gray-50 disabled:opacity-30"
+                        disabled={new Date(selectedDate + 'T00:00:00') >= new Date(selectedTermInfo?.end_date + 'T00:00:00')}
+                    >
+                        <ChevronRight className="w-4 h-4" />
+                    </button>
+                    <span className="text-sm text-gray-500">
+                        {weekDates.length > 0 && `${formatDate(weekDates[0].date)} ${weekDates[0].date.getFullYear()} – ${formatDate(weekDates[6].date)} ${weekDates[6].date.getFullYear()}`}
+                    </span>
+                </div>
+            )}
+
             {selectedTerm ? (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                     <div className="grid grid-cols-7 border-b">
-                        {DAYS.map(day => (
-                            <div key={day} className="px-4 py-3 text-center font-semibold text-gray-700 bg-gray-50 border-r last:border-r-0">
-                                {day}
+                        {weekDates.map(wd => (
+                            <div key={wd.dayOfWeek} className="px-4 py-3 text-center font-semibold text-gray-700 bg-gray-50 border-r last:border-r-0">
+                                {wd.label}
                             </div>
                         ))}
                     </div>
                     <div className="grid grid-cols-7 min-h-[400px]">
-                        {DAYS.map(day => (
-                            <div key={day} className="border-r last:border-r-0 p-2 space-y-2">
-                                {getSlotsByDay(day).map(slot => (
+                        {weekDates.map((wd, idx) => (
+                            <div key={wd.dayOfWeek} className="border-r last:border-r-0 p-2 space-y-2">
+                                {getSlotsByDay(idx).map(slot => (
                                     <div key={slot.id} className="bg-blue-50 border border-blue-200 rounded-lg p-2 text-sm">
-                                        <div className="font-medium text-blue-900">{slot.subject_name}</div>
+                                        <div className="flex items-center justify-between">
+                                            <div className="font-medium text-blue-900">{slot.subject_name}</div>
+                                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                                                slot.modality === 'Online' ? 'bg-green-100 text-green-800' :
+                                                slot.modality === 'Hybrid' ? 'bg-amber-100 text-amber-800' :
+                                                'bg-blue-100 text-blue-800'
+                                            }`}>{slot.modality || 'Offline'}</span>
+                                        </div>
                                         <div className="text-blue-700">{slot.start_time?.slice(0,5)} - {slot.end_time?.slice(0,5)}</div>
                                         <div className="text-blue-600">{slot.faculty_name}</div>
                                         <div className="text-blue-500">{slot.room_name}</div>
@@ -230,7 +409,10 @@ export default function TimetableManager() {
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
-                        <form onSubmit={handleSubmit} className="space-y-4">
+                        <form onSubmit={(e) => {
+                            if (!form.date) setForm(f => ({ ...f, date: selectedDate }));
+                            handleSubmit(e);
+                        }} className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
                                 <select 
@@ -254,41 +436,91 @@ export default function TimetableManager() {
                                     onChange={(e) => setForm({ ...form, faculty_id: e.target.value })} 
                                     className="w-full px-4 py-2 border rounded-lg" 
                                     required
-                                    disabled={!selectedSubjectDepartmentId}
+                                    disabled={!selectedSubjectDepartmentId || (form.subject_id && subjectAssignmentsLoaded && filteredFaculties.length === 0)}
                                 >
-                                    <option value="">{!selectedSubjectDepartmentId ? 'Select a subject first' : 'Select Faculty'}</option>
+                                    <option value="">
+                                        {!selectedSubjectDepartmentId
+                                            ? 'Select a subject first'
+                                            : form.subject_id && subjectAssignmentsLoaded && filteredFaculties.length === 0
+                                                ? 'No faculty assigned to this subject'
+                                                : 'Select Faculty'}
+                                    </option>
                                     {filteredFaculties.map(f => (
                                         <option key={f.id} value={f.id}>{f.name}</option>
                                     ))}
                                 </select>
                             </div>
+                            {form.modality !== 'Online' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Room {selectedSubjectDepartmentId && <span className="text-xs text-gray-500">(filtered by department)</span>}
+                                    </label>
+                                    <select 
+                                        value={form.room_id} 
+                                        onChange={(e) => setForm({ ...form, room_id: e.target.value })} 
+                                        className="w-full px-4 py-2 border rounded-lg" 
+                                        required
+                                        disabled={!selectedSubjectDepartmentId}
+                                    >
+                                        <option value="">{!selectedSubjectDepartmentId ? 'Select a subject first' : 'Select Room'}</option>
+                                        {filteredRooms.map(r => (
+                                            <option key={r.id} value={r.id}>{r.name} (Capacity: {r.capacity})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            {sections.length > 0 && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Section</label>
+                                    <select
+                                        value={form.section_id || ''}
+                                        onChange={(e) => setForm({ ...form, section_id: e.target.value || null })}
+                                        className="w-full px-4 py-2 border rounded-lg"
+                                    >
+                                        <option value="">Select Section</option>
+                                        {sections.map(s => (
+                                            <option key={s.id} value={s.id}>{s.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            {batches.length > 0 && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Batch</label>
+                                    <select
+                                        value={form.batch_id || ''}
+                                        onChange={(e) => setForm({ ...form, batch_id: e.target.value || null })}
+                                        className="w-full px-4 py-2 border rounded-lg"
+                                    >
+                                        <option value="">Select Batch</option>
+                                        {batches.map(b => (
+                                            <option key={b.id} value={b.id}>{b.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Room {selectedSubjectDepartmentId && <span className="text-xs text-gray-500">(filtered by department)</span>}
-                                </label>
-                                <select 
-                                    value={form.room_id} 
-                                    onChange={(e) => setForm({ ...form, room_id: e.target.value })} 
-                                    className="w-full px-4 py-2 border rounded-lg" 
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                                <input
+                                    type="date"
+                                    value={form.date || selectedDate}
+                                    min={selectedTermInfo?.start_date}
+                                    max={selectedTermInfo?.end_date}
+                                    onChange={(e) => setForm({ ...form, date: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg"
                                     required
-                                    disabled={!selectedSubjectDepartmentId}
-                                >
-                                    <option value="">{!selectedSubjectDepartmentId ? 'Select a subject first' : 'Select Room'}</option>
-                                    {filteredRooms.map(r => (
-                                        <option key={r.id} value={r.id}>{r.name} (Capacity: {r.capacity})</option>
-                                    ))}
-                                </select>
+                                />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Day</label>
-                                <select 
-                                    value={form.day_of_week} 
-                                    onChange={(e) => setForm({ ...form, day_of_week: e.target.value })} 
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Modality</label>
+                                <select
+                                    value={form.modality}
+                                    onChange={(e) => setForm({ ...form, modality: e.target.value })}
                                     className="w-full px-4 py-2 border rounded-lg"
                                 >
-                                    {DAYS.map(d => (
-                                        <option key={d} value={d}>{d}</option>
-                                    ))}
+                                    <option value="Offline">Offline</option>
+                                    <option value="Online">Online</option>
+                                    <option value="Hybrid">Hybrid</option>
                                 </select>
                             </div>
                             <div className="grid grid-cols-2 gap-4">

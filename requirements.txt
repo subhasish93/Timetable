@@ -4,5 +4,7 @@ SQLAlchemy
 psycopg2-binary
 pydantic
 python-dotenv
-pip install python-jose[cryptography]
-pip install pwdlib[argon2]
+python-jose[cryptography]
+pwdlib[argon2]
+openpyxl
+python-multipart
