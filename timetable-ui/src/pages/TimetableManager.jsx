@@ -414,6 +414,18 @@ export default function TimetableManager() {
                             handleSubmit(e);
                         }} className="space-y-4">
                             <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Modality</label>
+                                <select
+                                    value={form.modality}
+                                    onChange={(e) => setForm({ ...form, modality: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg"
+                                >
+                                    <option value="Offline">Offline</option>
+                                    <option value="Online">Online</option>
+                                    <option value="Hybrid">Hybrid</option>
+                                </select>
+                            </div>
+                            <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
                                 <select 
                                     value={form.subject_id} 
@@ -510,18 +522,6 @@ export default function TimetableManager() {
                                     className="w-full px-4 py-2 border rounded-lg"
                                     required
                                 />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Modality</label>
-                                <select
-                                    value={form.modality}
-                                    onChange={(e) => setForm({ ...form, modality: e.target.value })}
-                                    className="w-full px-4 py-2 border rounded-lg"
-                                >
-                                    <option value="Offline">Offline</option>
-                                    <option value="Online">Online</option>
-                                    <option value="Hybrid">Hybrid</option>
-                                </select>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
