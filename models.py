@@ -1,7 +1,8 @@
 from sqlalchemy import (
     Column, Integer, String, Time, ForeignKey, Date, Enum, Boolean, 
-    UniqueConstraint, CheckConstraint, Index
+    UniqueConstraint, CheckConstraint, Index, text
 )
+from sqlalchemy.dialects.postgresql import ExcludeConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from db import Base
@@ -191,9 +192,13 @@ class AcademicTerm(Base):
     timetable_slots = relationship("TimetableSlot", back_populates="academic_term", cascade="all, delete")
 
     __table_args__ = (
-        # ✅ FIXED
-        # UniqueConstraint("academic_year_id", "course_id", "term_number", name="unique_term_per_year_course"),
-        UniqueConstraint("course_id", "term_number", name="unique_term_per_course"),
+        ExcludeConstraint(
+            ("course_id", "="),
+            ("term_number", "="),
+            (text("daterange(start_date, end_date, '[)')"), "&&"),
+            using="gist",
+            name="prevent_overlapping_terms"
+        ),
         CheckConstraint("end_date > start_date", name="check_term_dates"),
         CheckConstraint("term_number > 0", name="check_term_number"),
     )

@@ -645,13 +645,15 @@ def create_term(course_id: int, data: AcademicTermCreate, db: Session = Depends(
     if data.term_number > max_terms:
         raise HTTPException(400, f"Term number cannot exceed {max_terms} for this course")
     
-    existing_term = db.query(AcademicTerm).filter(
+    overlapping = db.query(AcademicTerm).filter(
         AcademicTerm.course_id == course_id,
         AcademicTerm.term_number == data.term_number,
-        AcademicTerm.is_active == True
+        AcademicTerm.is_active == True,
+        AcademicTerm.start_date < data.end_date,
+        AcademicTerm.end_date > data.start_date
     ).first()
-    if existing_term:
-        raise HTTPException(400, f"Semester {data.term_number} already exists for this course")
+    if overlapping:
+        raise HTTPException(400, f"Term {data.term_number} with overlapping dates already exists for this course")
     
     term = AcademicTerm(
         course_id=course_id,
@@ -661,7 +663,11 @@ def create_term(course_id: int, data: AcademicTermCreate, db: Session = Depends(
         end_date=data.end_date
     )
     db.add(term)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(400, f"Term {data.term_number} with overlapping dates already exists for this course")
     db.refresh(term)
     return term
 
@@ -712,7 +718,26 @@ def update_term(term_id: int, data: AcademicTermUpdate, db: Session = Depends(ge
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(term, key, value)
     
-    db.commit()
+    if any(field in data.model_dump(exclude_unset=True) for field in ["term_number", "start_date", "end_date"]):
+        term_number = term.term_number
+        start_date = term.start_date
+        end_date = term.end_date
+        overlapping = db.query(AcademicTerm).filter(
+            AcademicTerm.id != term_id,
+            AcademicTerm.course_id == term.course_id,
+            AcademicTerm.term_number == term_number,
+            AcademicTerm.is_active == True,
+            AcademicTerm.start_date < end_date,
+            AcademicTerm.end_date > start_date
+        ).first()
+        if overlapping:
+            raise HTTPException(400, f"Term {term_number} with overlapping dates already exists for this course")
+    
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(400, f"Term with overlapping dates already exists for this course")
     db.refresh(term)
     return term
 
