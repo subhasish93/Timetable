@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AdminLayout from './components/layout/AdminLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
+import StudentTimetable from './pages/StudentTimetable';
 import Dashboard from './pages/Dashboard';
 import Department from './pages/Department';
 import Courses from './pages/Courses';
@@ -21,6 +22,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/student-timetable" element={<StudentTimetable />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
         <Route path="/super-admin" element={

@@ -147,10 +147,12 @@ export default function Login() {
                             </button>
                         </div>
 
-                        {/* Optional footer links */}
-                        <div className="mt-8 text-center text-sm text-gray-500">
-                            <a href="#" className="text-indigo-600 hover:text-indigo-800">
-                                Forgot password?
+                        <div className="mt-6 border-t border-gray-100 pt-6 text-center">
+                            <a
+                                href="/student-timetable"
+                                className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+                            >
+                                Student Timetable View
                             </a>
                         </div>
                     </form>
